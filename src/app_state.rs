@@ -1,83 +1,8 @@
-use crate::image::{self, ImageRgb32f};
+use crate::image_pool::*;
 use crate::shader::{AnyShadersChanged, ShaderKey, ShaderLib};
-use crate::texture::Texture;
-use anyhow::Context;
 use glutin::event::{KeyboardInput, VirtualKeyCode};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use turbosloth::LazyCache;
-
-enum PooledImageLoadStatus {
-    NotLoaded,
-    FailedToLoad,
-    Loaded(ImageRgb32f),
-}
-
-struct PooledImage {
-    path: PathBuf,
-    image: PooledImageLoadStatus,
-    texture: Option<Texture>,
-}
-
-pub struct ImagePool {
-    images: Vec<PooledImage>,
-}
-
-impl ImagePool {
-    fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let path = path.as_ref();
-
-        if path.is_dir() {
-            let dir = path
-                .read_dir()
-                .with_context(|| format!("Reading directory {:?}", path))?;
-            Ok(Self {
-                images: dir
-                    .filter_map(|entry| {
-                        let path = entry.ok()?.path();
-                        (path.extension() == Some(std::ffi::OsStr::new("exr"))).then(|| {
-                            PooledImage {
-                                path: path.to_owned(),
-                                image: PooledImageLoadStatus::NotLoaded,
-                                texture: None,
-                            }
-                        })
-                    })
-                    .collect(),
-            })
-        } else {
-            Ok(Self {
-                images: vec![PooledImage {
-                    path: path.to_owned(),
-                    image: PooledImageLoadStatus::NotLoaded,
-                    texture: None,
-                }],
-            })
-        }
-    }
-
-    fn get_texture(&mut self, idx: usize, gl: &gl::Gl) -> Option<&Texture> {
-        let img = &mut self.images[idx];
-        if matches!(img.image, PooledImageLoadStatus::NotLoaded) {
-            img.image = if let Ok(image) = image::load_exr(&img.path)
-                .map_err(|err| log::error!("Failed to load {:?}: {:?}", img.path, err))
-            {
-                PooledImageLoadStatus::Loaded(image)
-            } else {
-                PooledImageLoadStatus::FailedToLoad
-            };
-        }
-
-        match (&img.image, &mut img.texture) {
-            (PooledImageLoadStatus::Loaded(loaded), target_image @ None) => {
-                *target_image = Some(Texture::new(gl, loaded));
-                target_image.as_ref()
-            }
-            (PooledImageLoadStatus::Loaded(_), Some(texture)) => Some(texture),
-            _ => None,
-        }
-    }
-}
 
 pub struct AppState {
     image_pool: ImagePool,
@@ -150,12 +75,12 @@ impl AppState {
         match input.virtual_keycode {
             Some(VirtualKeyCode::Left) => {
                 self.current_image = (self.current_image
-                    + self.image_pool.images.len().saturating_sub(1))
-                    % self.image_pool.images.len();
+                    + self.image_pool.image_count().saturating_sub(1))
+                    % self.image_pool.image_count();
                 NeedsRedraw::Yes
             }
             Some(VirtualKeyCode::Right) => {
-                self.current_image = (self.current_image + 1) % self.image_pool.images.len();
+                self.current_image = (self.current_image + 1) % self.image_pool.image_count();
                 NeedsRedraw::Yes
             }
             _ => NeedsRedraw::No,

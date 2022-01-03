@@ -1,6 +1,7 @@
 mod app_state;
 mod file;
 mod image;
+mod image_pool;
 mod setup;
 mod shader;
 mod texture;
