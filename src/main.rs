@@ -1,64 +1,16 @@
+mod app_state;
 mod file;
 mod image;
 mod setup;
 mod shader;
 mod texture;
 
-use std::sync::Arc;
-
+use app_state::*;
 use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
-use shader::{AnyShadersChanged, ShaderKey, ShaderLib};
-use texture::Texture;
-use turbosloth::LazyCache;
-
-struct AppState {
-    texture: Texture,
-    shader_lib: ShaderLib,
-    _lazy_cache: Arc<LazyCache>,
-    shaders: Vec<ShaderKey>,
-}
-
-impl AppState {
-    fn new(gl: &gl::Gl) -> anyhow::Result<Self> {
-        let image = image::load_exr("sample.exr")?;
-        let texture = texture::Texture::new(gl, image);
-        let lazy_cache = LazyCache::create();
-
-        let mut shader_lib = ShaderLib::new(&lazy_cache, gl);
-        let shaders = vec![shader_lib.add_shader("shaders/linear.glsl")];
-
-        Ok(Self {
-            texture,
-            shader_lib,
-            _lazy_cache: lazy_cache,
-            shaders,
-        })
-    }
-
-    fn compile_shaders(&mut self, gl: &gl::Gl) -> AnyShadersChanged {
-        self.shader_lib.compile_all(gl)
-    }
-
-    fn draw_frame(&mut self, gl: &gl::Gl) {
-        unsafe {
-            if let Some(shader) = self.shader_lib.get_shader_gl_handle(&self.shaders[0]) {
-                draw_fullscreen_texture(gl, self.texture.id, shader);
-            } else {
-                gl.ClearColor(0.5, 0.0, 0.0, 1.0);
-                gl.Clear(gl::COLOR_BUFFER_BIT);
-            }
-        }
-    }
-
-    fn handle_resize(&mut self, width: u32, height: u32, gl: &gl::Gl) {
-        unsafe {
-            gl.Viewport(0, 0, width as _, height as _);
-        }
-    }
-}
+use shader::AnyShadersChanged;
 
 fn main() -> anyhow::Result<()> {
     simple_logger::SimpleLogger::new()
@@ -92,6 +44,11 @@ fn main() -> anyhow::Result<()> {
                     state.handle_resize(physical_size.width, physical_size.height, &gl);
                 }
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if matches!(state.handle_keyboard_input(input), NeedsRedraw::Yes) {
+                        windowed_context.window().request_redraw();
+                    }
+                }
                 _ => (),
             },
             Event::MainEventsCleared => {
@@ -106,20 +63,4 @@ fn main() -> anyhow::Result<()> {
             _ => (),
         }
     });
-}
-
-pub fn draw_fullscreen_texture(gl: &gl::Gl, tex: u32, prog: u32) {
-    unsafe {
-        gl.UseProgram(prog);
-
-        gl.ActiveTexture(gl::TEXTURE0);
-        gl.BindTexture(gl::TEXTURE_2D, tex);
-
-        let loc = gl.GetUniformLocation(prog, "texture\0".as_ptr() as *const i8);
-        let img_unit = 0;
-        gl.Uniform1i(loc, img_unit);
-
-        gl.DrawArrays(gl::TRIANGLES, 0, 3);
-        gl.UseProgram(0);
-    }
 }

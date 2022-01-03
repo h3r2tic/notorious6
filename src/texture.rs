@@ -1,11 +1,11 @@
-use crate::image::Rgb32fImage;
+use crate::image::ImageRgb32f;
 
 pub struct Texture {
     pub id: u32,
 }
 
 impl Texture {
-    pub fn new(gl: &gl::Gl, image: Rgb32fImage) -> Self {
+    pub fn new(gl: &gl::Gl, image: &ImageRgb32f) -> Self {
         unsafe {
             let mut texture_id = 0;
             gl.GenTextures(1, &mut texture_id);

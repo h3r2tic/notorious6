@@ -1,12 +1,12 @@
 use exr::prelude::{self as exrs, ReadChannels as _, ReadLayers as _};
 use std::path::Path;
 
-pub struct Rgb32fImage {
+pub struct ImageRgb32f {
     pub size: [usize; 2],
     pub data: Vec<f32>,
 }
 
-impl Rgb32fImage {
+impl ImageRgb32f {
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             size: [width, height],
@@ -20,13 +20,13 @@ impl Rgb32fImage {
     }
 }
 
-pub fn load_exr(file_path: impl AsRef<Path>) -> anyhow::Result<Rgb32fImage> {
+pub fn load_exr(file_path: impl AsRef<Path>) -> anyhow::Result<ImageRgb32f> {
     let reader = exrs::read()
         .no_deep_data()
         .largest_resolution_level()
         .rgb_channels(
-            |resolution, _channels: &exrs::RgbChannels| -> Rgb32fImage {
-                Rgb32fImage::new(resolution.width(), resolution.height())
+            |resolution, _channels: &exrs::RgbChannels| -> ImageRgb32f {
+                ImageRgb32f::new(resolution.width(), resolution.height())
             },
             // set each pixel in the png buffer from the exr file
             |output, position, (r, g, b): (f32, f32, f32)| {
@@ -38,7 +38,7 @@ pub fn load_exr(file_path: impl AsRef<Path>) -> anyhow::Result<Rgb32fImage> {
 
     // an image that contains a single layer containing an png rgba buffer
     let maybe_image: Result<
-        exrs::Image<exrs::Layer<exrs::SpecificChannels<Rgb32fImage, exrs::RgbChannels>>>,
+        exrs::Image<exrs::Layer<exrs::SpecificChannels<ImageRgb32f, exrs::RgbChannels>>>,
         exrs::Error,
     > = reader.from_file(file_path);
 
