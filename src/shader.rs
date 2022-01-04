@@ -86,13 +86,14 @@ pub(crate) fn make_shader(
     gl: &gl::Gl,
     shader_type: u32,
     sources: &[shader_prepper::SourceChunk],
+    postamble: Option<&shader_prepper::SourceChunk>,
 ) -> anyhow::Result<u32> {
     unsafe {
         let handle = gl.CreateShader(shader_type);
 
         let preamble = shader_prepper::SourceChunk {
             source: "#version 430\n".to_string(),
-            file: String::new(),
+            file: "preamble".to_string(),
             line_offset: 0,
         };
 
@@ -109,7 +110,11 @@ pub(crate) fn make_shader(
             })
             .collect();
 
-        for s in iter::once(&preamble).chain(mod_sources.iter()) {
+        for s in iter::once(&preamble)
+            .chain(mod_sources.iter())
+            .chain(postamble.into_iter())
+        {
+            println!("{}", s.source);
             source_lengths.push(s.source.len() as GLint);
             source_ptrs.push(s.source.as_ptr() as *const GLchar);
         }
@@ -224,6 +229,15 @@ pub struct ShaderKey {
     path: PathBuf,
 }
 
+impl ShaderKey {
+    pub fn name(&self) -> String {
+        self.path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+}
+
 pub struct ShaderLib {
     shaders: HashMap<ShaderKey, CompiledShader>,
     vs_handle: u32,
@@ -244,15 +258,16 @@ impl ShaderLib {
                 file: "no_file".to_string(),
                 line_offset: 0,
                 source: r#"
-                    out vec2 uv;
+                    out vec2 input_uv;
                     void main()
                     {
-                        uv = vec2(gl_VertexID & 1, gl_VertexID >> 1) * 2.0;
+                        input_uv = vec2(gl_VertexID & 1, gl_VertexID >> 1) * 2.0;
                         // Note: V flipped because our textures are flipped in memory
-                        gl_Position = vec4(uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0, 1);
+                        gl_Position = vec4(input_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0, 1);
                     }"#
                 .to_string(),
             }],
+            None,
         )
         .expect("Vertex shader failed to compile");
 
@@ -280,12 +295,30 @@ impl ShaderLib {
     pub fn compile_all(&mut self, gl: &gl::Gl) -> AnyShadersChanged {
         let mut any_shaders_changed = AnyShadersChanged::No;
 
+        let ps_postamble = shader_prepper::SourceChunk {
+            source: r#"
+            void main() {
+                output_rgba = vec4(exp(input_ev) * compress_stimulus(textureLod(input_texture, input_uv, 0).rgb), 1.0);
+            }
+            "#
+            .to_string(),
+            file: "postamble".to_string(),
+            line_offset: 0,
+        };
+
         for shader in self.shaders.values_mut() {
             if !shader.preprocessed_ps.is_up_to_date() {
                 let handle: anyhow::Result<u32> =
                     smol::block_on(shader.preprocessed_ps.eval(&self.lazy_cache))
                         .context("Preprocessing")
-                        .and_then(|ps_src| make_shader(gl, gl::FRAGMENT_SHADER, &ps_src.source))
+                        .and_then(|ps_src| {
+                            make_shader(
+                                gl,
+                                gl::FRAGMENT_SHADER,
+                                &ps_src.source,
+                                Some(&ps_postamble),
+                            )
+                        })
                         .context("Compiling the pixel shader")
                         .and_then(|ps| make_program(gl, &[self.vs_handle, ps]));
 

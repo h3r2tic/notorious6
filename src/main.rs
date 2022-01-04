@@ -42,17 +42,22 @@ fn main() -> anyhow::Result<()> {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(physical_size) => windowed_context.resize(physical_size),
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::KeyboardInput { input, .. } => {
-                    if matches!(state.handle_keyboard_input(input), NeedsRedraw::Yes) {
+                _ => {
+                    if matches!(state.handle_window_event(event), NeedsRedraw::Yes) {
                         windowed_context.window().request_redraw();
                     }
                 }
-                _ => (),
             },
             Event::MainEventsCleared => {
                 if matches!(state.compile_shaders(&gl), AnyShadersChanged::Yes) {
                     windowed_context.window().request_redraw();
                 }
+
+                windowed_context.window().set_title(&format!(
+                    "notorious6 | EV {:2.2} | {}",
+                    state.ev,
+                    state.current_shader()
+                ));
             }
             Event::RedrawRequested(_) => {
                 let window_size = windowed_context.window().inner_size();

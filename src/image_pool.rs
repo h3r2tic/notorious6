@@ -31,13 +31,12 @@ impl ImagePool {
                 images: dir
                     .filter_map(|entry| {
                         let path = entry.ok()?.path();
-                        (path.extension() == Some(std::ffi::OsStr::new("exr"))).then(|| {
-                            PooledImage {
+                        (path.is_file() && path.extension() == Some(std::ffi::OsStr::new("exr")))
+                            .then(|| PooledImage {
                                 path: path.to_owned(),
                                 image: PooledImageLoadStatus::NotLoaded,
                                 texture: None,
-                            }
-                        })
+                            })
                     })
                     .collect(),
             })

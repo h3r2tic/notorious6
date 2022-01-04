@@ -1,3 +1,4 @@
-uniform sampler2D texture;
-in vec2 uv;
-out vec4 out_color;
+uniform sampler2D input_texture;
+uniform float input_ev;
+in vec2 input_uv;
+out vec4 output_rgba;

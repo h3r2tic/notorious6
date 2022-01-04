@@ -1,5 +1,6 @@
 use crate::image::ImageRgb32f;
 
+#[derive(Clone, Copy)]
 pub struct Texture {
     pub size: [usize; 2],
     pub id: u32,
