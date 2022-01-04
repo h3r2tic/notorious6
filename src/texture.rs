@@ -1,6 +1,7 @@
 use crate::image::ImageRgb32f;
 
 pub struct Texture {
+    pub size: [usize; 2],
     pub id: u32,
 }
 
@@ -33,7 +34,10 @@ impl Texture {
             gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
             gl.TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
-            Texture { id: texture_id }
+            Texture {
+                id: texture_id,
+                size: image.size,
+            }
         }
     }
 }

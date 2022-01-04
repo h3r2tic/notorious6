@@ -40,10 +40,7 @@ fn main() -> anyhow::Result<()> {
         match event {
             Event::LoopDestroyed => {}
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::Resized(physical_size) => {
-                    windowed_context.resize(physical_size);
-                    state.handle_resize(physical_size.width, physical_size.height, &gl);
-                }
+                WindowEvent::Resized(physical_size) => windowed_context.resize(physical_size),
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::KeyboardInput { input, .. } => {
                     if matches!(state.handle_keyboard_input(input), NeedsRedraw::Yes) {
@@ -58,7 +55,11 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Event::RedrawRequested(_) => {
-                state.draw_frame(&gl);
+                let window_size = windowed_context.window().inner_size();
+                state.draw_frame(
+                    &gl,
+                    [window_size.width as usize, window_size.height as usize],
+                );
                 windowed_context.swap_buffers().unwrap();
             }
             _ => (),

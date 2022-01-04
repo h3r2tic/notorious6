@@ -42,7 +42,6 @@ pub fn setup_basic_gl_state(gl: &gl::Gl) {
         );
 
         gl.Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS);
-        gl.Enable(gl::FRAMEBUFFER_SRGB);
     }
 }
 
