@@ -1,6 +1,9 @@
-use crate::image_pool::*;
-use crate::shader::{AnyShadersChanged, ShaderKey, ShaderLib};
-use crate::texture::Texture;
+use crate::{
+    image_pool::*,
+    shader::{AnyShadersChanged, ShaderKey, ShaderLib},
+    texture::Texture,
+};
+use anyhow::Context;
 use glutin::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 use std::sync::Arc;
 use turbosloth::LazyCache;
@@ -48,10 +51,23 @@ impl AppState {
         let lazy_cache = LazyCache::create();
 
         let mut shader_lib = ShaderLib::new(&lazy_cache, gl);
-        let shaders = vec![
-            shader_lib.add_shader("shaders/linear.glsl"),
-            shader_lib.add_shader("shaders/per-channel-exponential.glsl"),
-        ];
+
+        let shaders_folder = "shaders";
+        let shaders = std::fs::read_dir(shaders_folder)
+            .context("Reading the shaders/ directory")?
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                (path.is_file() && path.extension() == Some(std::ffi::OsStr::new("glsl"))).then(
+                    || {
+                        shader_lib.add_shader(format!(
+                            "{}/{}",
+                            shaders_folder,
+                            path.file_name().unwrap().to_string_lossy()
+                        ))
+                    },
+                )
+            })
+            .collect();
 
         Ok(Self {
             image_pool,

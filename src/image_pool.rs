@@ -1,5 +1,7 @@
-use crate::image::{self, ImageRgb32f};
-use crate::texture::Texture;
+use crate::{
+    image::{self, ImageRgb32f},
+    texture::Texture,
+};
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 

@@ -114,7 +114,7 @@ pub(crate) fn make_shader(
             .chain(mod_sources.iter())
             .chain(postamble.into_iter())
         {
-            println!("{}", s.source);
+            //println!("{}", s.source);
             source_lengths.push(s.source.len() as GLint);
             source_ptrs.push(s.source.as_ptr() as *const GLchar);
         }
@@ -298,7 +298,7 @@ impl ShaderLib {
         let ps_postamble = shader_prepper::SourceChunk {
             source: r#"
             void main() {
-                output_rgba = vec4(exp(input_ev) * compress_stimulus(textureLod(input_texture, input_uv, 0).rgb), 1.0);
+                output_rgba = vec4(compress_stimulus(exp(input_ev) * max(0.0.xxx, textureLod(input_texture, input_uv, 0).rgb)), 1.0);
             }
             "#
             .to_string(),
@@ -324,6 +324,7 @@ impl ShaderLib {
 
                 match handle {
                     Ok(handle) => {
+                        log::info!("Shader compiled.");
                         shader.gl_handle = Some(handle);
                         any_shaders_changed = AnyShadersChanged::Yes;
                     }
