@@ -1197,6 +1197,7 @@ dependencies = [
  "lazy_static",
  "log",
  "parking_lot",
+ "radiant",
  "regex",
  "relative-path",
  "shader-prepper",
@@ -1412,6 +1413,12 @@ checksum = "47aa80447ce4daf1717500037052af176af5d38cc3e571d9ec1c7353fc10c87d"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "radiant"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fe058d33033bb65dbf0adcfd4a03f4ce4964426ec9c73e054ebf2f7e605ccd3"
 
 [[package]]
 name = "rand_core"

@@ -1,5 +1,6 @@
+use anyhow::Context;
 use exr::prelude::{self as exrs, ReadChannels as _, ReadLayers as _};
-use std::path::Path;
+use std::{fs::File, io::BufReader, path::Path};
 
 pub struct ImageRgb32f {
     pub size: [usize; 2],
@@ -20,7 +21,38 @@ impl ImageRgb32f {
     }
 }
 
-pub fn load_exr(file_path: impl AsRef<Path>) -> anyhow::Result<ImageRgb32f> {
+pub fn load_image(file_path: impl AsRef<Path>) -> anyhow::Result<ImageRgb32f> {
+    let path = file_path.as_ref();
+    let ext = path
+        .extension()
+        .map(|ext| ext.to_string_lossy().as_ref().to_owned());
+
+    match ext.as_ref().map(String::as_str) {
+        Some("exr") => load_exr(path),
+        Some("hdr") => load_hdr(path),
+        _ => Err(anyhow::anyhow!("Unsupported file extension: {:?}", ext)),
+    }
+}
+
+fn load_hdr(file_path: &Path) -> anyhow::Result<ImageRgb32f> {
+    let f = File::open(&file_path).context("failed to open specified file")?;
+    let f = BufReader::new(f);
+    let image = radiant::load(f).context("failed to load image data")?;
+
+    let data: Vec<f32> = image
+        .data
+        .iter()
+        .copied()
+        .flat_map(|px| [px.r, px.g, px.b].into_iter())
+        .collect();
+
+    Ok(ImageRgb32f {
+        size: [image.width, image.height],
+        data,
+    })
+}
+
+fn load_exr(file_path: &Path) -> anyhow::Result<ImageRgb32f> {
     let reader = exrs::read()
         .no_deep_data()
         .largest_resolution_level()

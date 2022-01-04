@@ -1,4 +1,4 @@
-use crate::image::ImageRgb32f;
+use crate::image_loading::ImageRgb32f;
 
 #[derive(Clone, Copy)]
 pub struct Texture {

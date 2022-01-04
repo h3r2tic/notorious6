@@ -12,7 +12,7 @@
 #define PERCEPTUAL_SPACE_OKLAB 0
 #define PERCEPTUAL_SPACE_LUV 1
 #define PERCEPTUAL_SPACE_ICTCP 2
-#define PERCEPTUAL_SPACE_NONE 4
+#define PERCEPTUAL_SPACE_NONE 3
 
 
 // ----------------------------------------------------------------
@@ -23,14 +23,14 @@
 
 // if 1, the gamut will be trimmed at the "notorious 6" corners.
 // if 0, the whole gamut is used.
-#define TRIM_GAMUT_CORNERS 1
-#define GAMUT_CORNER_CUT_RADII float3(0.25, 0.25, 0.25)
+#define TRIM_GAMUT_CORNERS 1    // 0 or 1
+#define GAMUT_CORNER_CUT_RADII float3(0.25, 0.25, 0.25) // 0..1
 
 // Attenuate chroma based on brightness. Very ad-hoc.
 // Should probably be part of a look, and not applied here.
-#define USE_BRIGTHNESS_DEPENDENT_DESATURATION 0 // 0 or 1
-#define BRIGTHNESS_DEPENDENT_DESATURATION_SCALE 1.0 // 0..
-#define BRIGTHNESS_DEPENDENT_DESATURATION_START 0.0 // 0..1
+#define USE_BRIGTHNESS_DEPENDENT_DESATURATION 1 // 0 or 1
+#define BRIGTHNESS_DEPENDENT_DESATURATION_SCALE 0.6 // 0..
+#define BRIGTHNESS_DEPENDENT_DESATURATION_START 0.2 // 0..1
 #define BRIGTHNESS_DEPENDENT_DESATURATION_EXPONENT 2.0  // 1..
 // ----------------------------------------------------------------
 
@@ -145,14 +145,8 @@ float3 compress_stimulus(float3 input) {
 	float3 compressed_0 = compressed_rgb;
 
 #if USE_BRIGTHNESS_DEPENDENT_DESATURATION
-    const float3 max_possible_component = 1.0 / float3(0.2126, 0.7152, 0.0722);
-    const float max_component = max(
-        compressed_rgb.r / max_possible_component.r, max(
-        compressed_rgb.g / max_possible_component.g,
-        compressed_rgb.b / max_possible_component.b));
-
     float s0 = saturate(smoothstep(BRIGTHNESS_DEPENDENT_DESATURATION_START, 1.0,
-        pow(max_component, BRIGTHNESS_DEPENDENT_DESATURATION_EXPONENT)
+        pow(compressed_brightness, BRIGTHNESS_DEPENDENT_DESATURATION_EXPONENT)
     ) * BRIGTHNESS_DEPENDENT_DESATURATION_SCALE);
 #else
 	float s0 = 0;

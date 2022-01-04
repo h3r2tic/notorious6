@@ -1,5 +1,5 @@
 use crate::{
-    image::{self, ImageRgb32f},
+    image_loading::{self, ImageRgb32f},
     texture::Texture,
 };
 use anyhow::Context;
@@ -21,6 +21,10 @@ pub struct ImagePool {
     images: Vec<PooledImage>,
 }
 
+fn is_supported_image_file_extension(ext: Option<&std::ffi::OsStr>) -> bool {
+    return ext == Some(std::ffi::OsStr::new("exr")) || ext == Some(std::ffi::OsStr::new("hdr"));
+}
+
 impl ImagePool {
     pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
@@ -33,7 +37,7 @@ impl ImagePool {
                 images: dir
                     .filter_map(|entry| {
                         let path = entry.ok()?.path();
-                        (path.is_file() && path.extension() == Some(std::ffi::OsStr::new("exr")))
+                        (path.is_file() && is_supported_image_file_extension(path.extension()))
                             .then(|| PooledImage {
                                 path: path.to_owned(),
                                 image: PooledImageLoadStatus::NotLoaded,
@@ -57,7 +61,7 @@ impl ImagePool {
         let img = self.images.get_mut(idx)?;
 
         if matches!(img.image, PooledImageLoadStatus::NotLoaded) {
-            img.image = if let Ok(image) = image::load_exr(&img.path)
+            img.image = if let Ok(image) = image_loading::load_image(&img.path)
                 .map_err(|err| log::error!("Failed to load {:?}: {:?}", img.path, err))
             {
                 PooledImageLoadStatus::Loaded(image)
