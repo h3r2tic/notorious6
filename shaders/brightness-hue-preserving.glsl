@@ -14,6 +14,9 @@
 #define PERCEPTUAL_SPACE_ICTCP 2
 #define PERCEPTUAL_SPACE_NONE 3
 
+// Helmholtz-Kohlrausch adjustment methods
+#define HK_ADJUSTMENT_METHOD_NAYATANI 0
+#define HK_ADJUSTMENT_METHOD_NONE 1
 
 // ----------------------------------------------------------------
 // Configurable stuff:
@@ -21,17 +24,15 @@
 // Choose the perceptual space for chroma attenuation.
 #define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_OKLAB
 
+// Choose the method for performing the H-K adjustment
+#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_NAYATANI
+
 // if 1, the gamut will be trimmed at the "notorious 6" corners.
 // if 0, the whole gamut is used.
+// Not strictly necessary, but smooths-out boundaries where
+// achromatic stimulus begins to be added.
 #define TRIM_GAMUT_CORNERS 1    // 0 or 1
 #define GAMUT_CORNER_CUT_RADII float3(0.25, 0.25, 0.25) // 0..1
-
-// Attenuate chroma based on brightness. Very ad-hoc.
-// Should probably be part of a look, and not applied here.
-#define USE_BRIGTHNESS_DEPENDENT_DESATURATION 1 // 0 or 1
-#define BRIGTHNESS_DEPENDENT_DESATURATION_SCALE 0.6 // 0..
-#define BRIGTHNESS_DEPENDENT_DESATURATION_START 0.2 // 0..1
-#define BRIGTHNESS_DEPENDENT_DESATURATION_EXPONENT 2.0  // 1..
 // ----------------------------------------------------------------
 
 
@@ -50,26 +51,29 @@
 	#define perceptual_to_linear(col) (col)
 #endif
 
-float compress_brightness(float v) {
+float compress_lightness(float v) {
 	#if 0
-        // Approximately match mid-tones of Reinhard
-        v *= 1.3;
-
-		// Siragusano
+		// From Daniele Siragusano: https://community.acescentral.com/t/output-transform-tone-scale/3498/14
 		float n = 100;
 		float n_r = 100;
 		float g = 1.2;
 		float w = 1;
-		float t = 0.01;	// toe
+		float t = 0.0;	// toe
 		float m = n / n_r;
 		float s_1 = w * pow(max(0.0, m), 1.0 / g);
 		float fx = pow(max(0.0, v / (v + s_1)), g) * m;
 		return max(0.0, fx * fx / (fx + t));
-	#elif 1
+	#elif 0
 		// Reinhard
 		return v / (v + 1.0);
+	#elif 1
+		// Hyperbolic, from Jed Smith: https://github.com/jedypod/open-display-transform/wiki/tech_tonescale
+        const float sx = 1.0;
+        const float p = 1.2;
+        const float sy = 1.0205;
+		return saturate(sy * pow(v / (v + sx), p));
     #else
-		// Classic exponential
+		// Ye olde exponential
         return 1.0 - exp(-v);
     #endif
 }
@@ -79,19 +83,22 @@ float srgb_to_luminance(float3 col) {
 }
 
 // Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
-float srgb_to_hk_adjusted_luminance(float3 input) {
-    float3 xyz = RGBToXYZ(input);
-    float3 lab = XYZToLab(xyz);
-    float3 lch = LabToLch(lab);
-    
-    float L = CalculateFairchildPirrottaLightness(lch);
-
-	return LABToXYZ(float3(L, 0, 0)).y;
+float srgb_to_hk_adjusted_lightness(float3 input) {
+#if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
+    const float luminance = srgb_to_luminance(input);
+    const float3 xyz = RGBToXYZ(input / max(1e-10, luminance));
+    const float2 uv = cie_XYZ_to_Luv_uv(xyz);
+    const float luv_lightness = hsluv_yToL(luminance);
+    const float nayat = nayatani_hk_lightness_adjustment_multiplier(uv);
+    return hsluv_lToY(luv_lightness * nayat);
+#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
+    return srgb_to_luminance(input);
+#endif
 }
 
 // A square with the (1, 0) and (0, 1) corners circularly trimmed.
 bool is_inside_2d_gamut_slice(float2 pos, float corner_radius) {
-	float2 closest = clamp(pos, float2(0, corner_radius), float2(1-corner_radius, 1));
+	float2 closest = clamp(pos, float2(0, corner_radius), float2(1 - corner_radius, 1));
 	float2 offset = pos - closest;
 	return dot(offset, offset) <= corner_radius * corner_radius * 1.0001;
 }
@@ -115,20 +122,37 @@ bool is_inside_target_gamut(float3 pos) {
 }
 
 float3 compress_stimulus(float3 input) {
-    // Find the input brightness and compress it. We will then adjust the chromatic input
-    // to match that compressed brightness.
-	const float input_brightness = srgb_to_hk_adjusted_luminance(input);
-	const float compressed_brightness = compress_brightness(input_brightness);
+    //input /= srgb_to_luminance(input);
+    const float input_luminance = srgb_to_luminance(input);
+
+    // Find the input lightness and compress it. We will then adjust the chromatic input
+    // to match that compressed lightness.
+	//float input_lightness = input_luminance * hk;
+    float input_lightness = srgb_to_hk_adjusted_lightness(input);
+    //return input_lightness.xxx;
+
+    //return input_luminance.xxx;
+    //return srgb_to_hk_adjusted_lightness(input).xxx;
+    const float3 max_intensity_rgb = input / max(input.r, max(input.g, input.b)).xxx;
+    float max_intensity_lightness = srgb_to_hk_adjusted_lightness(max_intensity_rgb);
+    float max_output_scale = max(1.0, max_intensity_lightness);
+    //return max_intensity_lightness.xxx - 1.0;
+    //return max_intensity_rgb;
+
+	float compressed_lightness = compress_lightness(input_lightness / max_output_scale) * max_output_scale;
 
     // Start by simply scaling the stimulus by the ratio between the compressed
-    // and original brightness. This will create matching brightness,
+    // and original lightness. This will create matching lightness,
     // but potentially out of gamut components.
-    float3 compressed_rgb = input * max(0.0, compressed_brightness / max(1e-5, input_brightness));
+    //float3 compressed_rgb = input * max(0.0, compressed_lightness / max(1e-10, input_lightness));
+    float3 compressed_rgb = compressed_lightness * (max_intensity_rgb / max_intensity_lightness);
+
+    //return compressed_rgb;
 
     // We now want to map the out-of-gamut stimulus back to what our device can display.
-    // Since both the `compressed_rgb` and `compressed_brightness` are of the same
-    // brightness, and `compressed_brightness.xxx` is guaranteed to be inside the gamut,
-    // we can trace a path from `compressed_rgb` towards `compressed_brightness.xxx`,
+    // Since both the `compressed_rgb` and `compressed_lightness` are of the same
+    // lightness, and `compressed_lightness.xxx` is guaranteed to be inside the gamut,
+    // we can trace a path from `compressed_rgb` towards `compressed_lightness.xxx`,
     // and stop once we have intersected the target gamut.
 
     // This has the effect of removing chromatic content from the compressed stimulus,
@@ -140,18 +164,10 @@ float3 compress_stimulus(float3 input) {
     // a straight line in that space until we intersect the gamut.
 
 	const float3 perceptual = linear_to_perceptual(compressed_rgb);
-	const float3 perceptual_white = linear_to_perceptual(compressed_brightness.xxx);
+	const float3 perceptual_white = linear_to_perceptual(min(1.0, compressed_lightness).xxx);
 
-	float3 compressed_0 = compressed_rgb;
-
-#if USE_BRIGTHNESS_DEPENDENT_DESATURATION
-    float s0 = saturate(smoothstep(BRIGTHNESS_DEPENDENT_DESATURATION_START, 1.0,
-        pow(compressed_brightness, BRIGTHNESS_DEPENDENT_DESATURATION_EXPONENT)
-    ) * BRIGTHNESS_DEPENDENT_DESATURATION_SCALE);
-#else
-	float s0 = 0;
-#endif
-
+    const float chroma_attenuation_start = min(0.7, 1.0 / (max_output_scale));
+	float s0 = pow(max(0.0, (compressed_lightness - max_output_scale * chroma_attenuation_start) / (max_output_scale * (1.0 - chroma_attenuation_start))), 3);
 	float s1 = 1;
 
     // The gamut (and the line) is deformed by the perceptual space, making its shape non-trivial.
@@ -161,18 +177,30 @@ float3 compress_stimulus(float3 input) {
     // The search here is performed in a pretty brute-force way, by performing a binary search.
     // The number of iterations is chosen in a very conservative way, and could be reduced.
 
-	for (int i = 0; i < 24; ++i) {
-		float3 perceptual_mid = lerp(perceptual, perceptual_white, lerp(s0, s1, 0.5));
+    {
+		float3 perceptual_mid = lerp(perceptual, perceptual_white, s0);
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
+    }
 
-		if (is_inside_target_gamut(compressed_rgb)) {
-            // Mid point inside gamut. Step back.
-			s1 = lerp(s0, s1, 0.5);
-		} else {
-            // Mid point outside gamut. Step forward.
-			s0 = lerp(s0, s1, 0.5);
-		}
-	}
+    if (!is_inside_target_gamut(compressed_rgb)) {
+    	for (int i = 0; i < 24; ++i) {
+    		float3 perceptual_mid = lerp(perceptual, perceptual_white, lerp(s0, s1, 0.5));
+    		compressed_rgb = perceptual_to_linear(perceptual_mid);
 
+    		if (is_inside_target_gamut(compressed_rgb / max_output_scale)) {
+                // Mid point inside gamut. Step back.
+    			s1 = lerp(s0, s1, 0.5);
+    		} else {
+                // Mid point outside gamut. Step forward.
+    			s0 = lerp(s0, s1, 0.5);
+    		}
+    	}
+    }
+
+    compressed_rgb = saturate(compressed_rgb);
+
+    const float output_lightness = srgb_to_hk_adjusted_lightness(compressed_rgb);
+    //return compressed_lightness.xxx;
+    //return output_lightness.xxx;
     return compressed_rgb;
 }

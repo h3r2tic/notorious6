@@ -36,3 +36,11 @@ float3 luvToXyz(float3 tuple) {
 
     return float3(X, Y, Z);
 }
+
+float2 cie_xy_to_Luv_uv(float2 xy) {
+    return xy * float2(4.0, 9.0) / (-2.0 * xy.x + 12.0 * xy.y + 3.0);
+}
+
+float2 cie_XYZ_to_Luv_uv(float3 xyz) {
+    return xyz.xy * float2(4.0, 9.0) / dot(xyz, float3(1.0, 15.0, 3.0));
+}
