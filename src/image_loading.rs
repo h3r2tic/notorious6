@@ -27,7 +27,7 @@ pub fn load_image(file_path: impl AsRef<Path>) -> anyhow::Result<ImageRgb32f> {
         .extension()
         .map(|ext| ext.to_string_lossy().as_ref().to_owned());
 
-    match ext.as_ref().map(String::as_str) {
+    match ext.as_deref() {
         Some("exr") => load_exr(path),
         Some("hdr") => load_hdr(path),
         _ => Err(anyhow::anyhow!("Unsupported file extension: {:?}", ext)),
