@@ -48,7 +48,7 @@
 // If `ALLOW_BRIGHTNESS_ABOVE_WHITE` is 1, the compressed stimulus is allowed to exceed
 // that range, at the cost of the output brightness curve having an inflection point, with the
 // brightness briefly exceeding max, and then going back to max as chroma attenuates.
-#define ALLOW_BRIGHTNESS_ABOVE_WHITE 0
+#define ALLOW_BRIGHTNESS_ABOVE_WHITE 1
 
 // if 1, the gamut will be trimmed at the "notorious 6" corners.
 // if 0, the whole gamut is used.
