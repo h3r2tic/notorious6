@@ -6,6 +6,8 @@ mod setup;
 mod shader;
 mod texture;
 
+use std::path::PathBuf;
+
 use app_state::*;
 use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
@@ -13,7 +15,22 @@ use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
 use shader::AnyShadersChanged;
 
+use structopt::StructOpt;
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "notorious6", about = "HDR display mapping stuffs.")]
+struct Opt {
+    #[structopt(
+        parse(from_os_str),
+        default_value = "img",
+        help = "A single file or a folder containing .exr or .hdr images"
+    )]
+    input: PathBuf,
+}
+
 fn main() -> anyhow::Result<()> {
+    let opt = Opt::from_args();
+
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
         .init()
@@ -32,7 +49,7 @@ fn main() -> anyhow::Result<()> {
     let gl = gl::Gl::load_with(|symbol| windowed_context.get_proc_address(symbol) as *const _);
     setup::setup_basic_gl_state(&gl);
 
-    let mut state = AppState::new(&gl)?;
+    let mut state = AppState::new(opt.input, &gl)?;
 
     el.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;

@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::Context;
 use glutin::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use turbosloth::LazyCache;
 
 #[derive(Default)]
@@ -46,8 +46,8 @@ pub enum NeedsRedraw {
 }
 
 impl AppState {
-    pub fn new(gl: &gl::Gl) -> anyhow::Result<Self> {
-        let image_pool = ImagePool::new("img")?;
+    pub fn new(input_path: PathBuf, gl: &gl::Gl) -> anyhow::Result<Self> {
+        let image_pool = ImagePool::new(input_path)?;
         let lazy_cache = LazyCache::create();
 
         let mut shader_lib = ShaderLib::new(&lazy_cache, gl);
