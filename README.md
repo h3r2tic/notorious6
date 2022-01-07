@@ -16,6 +16,8 @@ Experiments in mapping HDR stimulus to display via shaders and stuff.
 
 ## Building and running
 
+Should work on Windows and Linux (🐧 not tested yet). Mac will probably throw a fit due to the use of OpenGL.
+
 1. [Get Rust](https://www.rust-lang.org/tools/install).
 2. Clone the repo and run `cargo run --release`
 
