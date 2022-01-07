@@ -1,4 +1,4 @@
-// TL;DR: Compress lightness, preserve chroma by desaturation.
+// TL;DR: Compress brightness, preserve chroma by desaturation.
 
 #include "inc/prelude.glsl"
 #include "inc/ictcp.hlsl"
@@ -21,14 +21,14 @@
 #define HK_ADJUSTMENT_METHOD_NAYATANI 0
 #define HK_ADJUSTMENT_METHOD_NONE 1
 
-// Lightness compression curves:
-#define LIGHTNESS_COMPRESSION_CURVE_REINHARD 0
-#define LIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH 1    // :P
+// Brightness compression curves:
+#define BRIGHTNESS_COMPRESSION_CURVE_REINHARD 0
+#define BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH 1    // :P
 
 // ----------------------------------------------------------------
 // Configurable stuff:
 
-#define LIGHTNESS_COMPRESSION_CURVE LIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
+#define BRIGHTNESS_COMPRESSION_CURVE BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
 
 // Choose the perceptual space for chroma attenuation.
 #define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_OKLAB
@@ -39,16 +39,16 @@
 // Adapting luminance (L_a) used for the H-K adjustment; Nayatani 1998 used 63.66.
 #define HK_ADAPTING_LUMINANCE 63.66
 
-// The stimulus with the highest displayable lightness is not "white" 100% r, g, and b,
+// The stimulus with the highest displayable brightness is not "white" 100% r, g, and b,
 // but depends on the Helmholtz-Kohlrausch effect.
 // That is somewhat problematic for us, as the display transform here is based on compressing
-// lightness to a range of up to a maximum achromatic signal of the output device.
-// If `ALLOW_LIGHTNESS_ABOVE_WHITE` is 0, yellows and greens are never allowed to reach
-// full intensity, as that results in lightness above that of "white".
-// If `ALLOW_LIGHTNESS_ABOVE_WHITE` is 1, the compressed stimulus is allowed to exceed
-// that range, at the cost of the output lightness curve having an inflection point, with the
-// lightness briefly exceeding max, and then going back to max as chroma attenuates.
-#define ALLOW_LIGHTNESS_ABOVE_WHITE 1
+// brightness to a range of up to a maximum achromatic signal of the output device.
+// If `ALLOW_BRIGHTNESS_ABOVE_WHITE` is 0, yellows and greens are never allowed to reach
+// full intensity, as that results in brightness above that of "white".
+// If `ALLOW_BRIGHTNESS_ABOVE_WHITE` is 1, the compressed stimulus is allowed to exceed
+// that range, at the cost of the output brightness curve having an inflection point, with the
+// brightness briefly exceeding max, and then going back to max as chroma attenuates.
+#define ALLOW_BRIGHTNESS_ABOVE_WHITE 0
 
 // if 1, the gamut will be trimmed at the "notorious 6" corners.
 // if 0, the whole gamut is used.
@@ -79,12 +79,12 @@
 	#define perceptual_to_linear(col) (col)
 #endif
 
-// Map lightness through a curve yielding values in 0..1, working with linear stimulus values.
-float compress_lightness(float v) {
-	#if LIGHTNESS_COMPRESSION_CURVE == LIGHTNESS_COMPRESSION_CURVE_REINHARD
+// Map brightness through a curve yielding values in 0..1, working with linear stimulus values.
+float compress_brightness(float v) {
+	#if BRIGHTNESS_COMPRESSION_CURVE == BRIGHTNESS_COMPRESSION_CURVE_REINHARD
 		// Reinhard
 		return v / (v + 1.0);
-	#elif LIGHTNESS_COMPRESSION_CURVE == LIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
+	#elif BRIGHTNESS_COMPRESSION_CURVE == BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
 		// From Jed Smith: https://github.com/jedypod/open-display-transform/wiki/tech_tonescale,
         // based on stuff from Daniele Siragusano: https://community.acescentral.com/t/output-transform-tone-scale/3498/14
         // Reinhard with flare compensation.
@@ -100,14 +100,14 @@ float srgb_to_luminance(float3 col) {
 }
 
 // Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
-float srgb_to_hk_adjusted_lightness(float3 input) {
+float srgb_to_hk_adjusted_brightness(float3 input) {
 #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
     const float luminance = srgb_to_luminance(input);
     const float3 xyz = RGBToXYZ(input / max(1e-10, luminance));
     const float2 uv = cie_XYZ_to_Luv_uv(xyz);
-    const float luv_lightness = hsluv_yToL(luminance);
+    const float luv_brightness = hsluv_yToL(luminance);
     const float mult = nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
-    return hsluv_lToY(luv_lightness * mult);
+    return hsluv_lToY(luv_brightness * mult);
 #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
     return srgb_to_luminance(input);
 #endif
@@ -139,43 +139,43 @@ bool is_inside_target_gamut(float3 pos) {
 }
 
 float3 compress_stimulus(float3 input) {
-    // Find the input lightness adjusted by the Helmholtz-Kohlrausch effect.
-    const float input_lightness = srgb_to_hk_adjusted_lightness(input);
+    // Find the input brightness adjusted by the Helmholtz-Kohlrausch effect.
+    const float input_brightness = srgb_to_hk_adjusted_brightness(input);
 
     // The highest displayable intensity stimulus with the same chromaticity as the input,
-    // and its associated lightness.
+    // and its associated brightness.
     const float3 max_intensity_rgb = input / max(input.r, max(input.g, input.b)).xxx;
-    float max_intensity_lightness = srgb_to_hk_adjusted_lightness(max_intensity_rgb);
-    //return max_intensity_lightness.xxx - 1.0;
+    float max_intensity_brightness = srgb_to_hk_adjusted_brightness(max_intensity_rgb);
+    //return max_intensity_brightness.xxx - 1.0;
     //return max_intensity_rgb;
 
-    #if ALLOW_LIGHTNESS_ABOVE_WHITE
+    #if ALLOW_BRIGHTNESS_ABOVE_WHITE
         // The `max_intensity_rgb` stimulus can potentially be lighter than "white".
         //
-        // This is by how much the output lightness will be allowed to exceed
-        // the lightness of the highest luminance achromatic stimulus of the target gamut.
-        float max_output_scale = max(1.0, max_intensity_lightness);
+        // This is by how much the output brightness will be allowed to exceed
+        // the brightness of the highest luminance achromatic stimulus of the target gamut.
+        float max_output_scale = max(1.0, max_intensity_brightness);
     #else
         float max_output_scale = 1.0;
     #endif
 
-    // Compress the lightness. We will then adjust the chromatic input stimulus to match this.
+    // Compress the brightness. We will then adjust the chromatic input stimulus to match this.
     // Note that this is not the non-linear "L*", but a 0..`max_output_scale` value as a multilpier
     // over the maximum achromatic luminance.
-	const float compressed_achromatic_luminance = compress_lightness(input_lightness / max_output_scale) * max_output_scale;
+	const float compressed_achromatic_luminance = compress_brightness(input_brightness / max_output_scale) * max_output_scale;
 
     // Scale the chromatic stimulus so that its luminance matches `compressed_achromatic_luminance`.
-    // TODO: Overly simplistic, and does not accurately map the lightness.
+    // TODO: Overly simplistic, and does not accurately map the brightness.
     //
-    // This will create (mostly) matching lightness, but potentially out of gamut components.
-    float3 compressed_rgb = (max_intensity_rgb / max_intensity_lightness) * compressed_achromatic_luminance;
+    // This will create (mostly) matching brightness, but potentially out of gamut components.
+    float3 compressed_rgb = (max_intensity_rgb / max_intensity_brightness) * compressed_achromatic_luminance;
 
     // The achromatic stimulus we'll interpolate towards to fix out-of-gamut stimulus.
     const float clamped_compressed_achromatic_luminance = min(1.0, compressed_achromatic_luminance);
 
     // We now want to map the out-of-gamut stimulus back to what our device can display.
     // Since both the `compressed_rgb` and `clamped_compressed_achromatic_luminance` are of the same-ish
-    // lightness, and `clamped_compressed_achromatic_luminance.xxx` is guaranteed to be inside the gamut,
+    // brightness, and `clamped_compressed_achromatic_luminance.xxx` is guaranteed to be inside the gamut,
     // we can trace a path from `compressed_rgb` towards `clamped_compressed_achromatic_luminance.xxx`,
     // and stop once we have intersected the target gamut.
 
@@ -190,9 +190,9 @@ float3 compress_stimulus(float3 input) {
 	const float3 perceptual = linear_to_perceptual(compressed_rgb);
 	const float3 perceptual_white = linear_to_perceptual(clamped_compressed_achromatic_luminance.xxx);
 
-    // Values lighter than "white" are already within the gamut, so our lightness compression is "done".
+    // Values lighter than "white" are already within the gamut, so our brightness compression is "done".
     // Perceptually they look wrong though, as they don't follow the desaturation that other stimulus does.
-    // We fix that manually here by biasing the interpolation towards "white" at the end of the lightness range.
+    // We fix that manually here by biasing the interpolation towards "white" at the end of the brightness range.
     // This "fixes" the yellows and greens.
     const float chroma_attenuation = pow(
         saturate(
@@ -223,7 +223,7 @@ float3 compress_stimulus(float3 input) {
     		compressed_rgb = perceptual_to_linear(perceptual_mid);
 
             // Note: allow to exceed the gamut when `max_output_scale` > 1.0.
-            // If we don't, we get a sharp cut to "white" with ALLOW_LIGHTNESS_ABOVE_WHITE.
+            // If we don't, we get a sharp cut to "white" with ALLOW_BRIGHTNESS_ABOVE_WHITE.
     		if (is_inside_target_gamut(compressed_rgb / max_output_scale)) {
                 // Mid point inside gamut. Step back.
     			s1 = lerp(s0, s1, 0.5);
@@ -234,13 +234,13 @@ float3 compress_stimulus(float3 input) {
     	}
     }
 
-#if ALLOW_LIGHTNESS_ABOVE_WHITE
-    // HACK: if `ALLOW_LIGHTNESS_ABOVE_WHITE` is enabled, we may still have a stimulus
+#if ALLOW_BRIGHTNESS_ABOVE_WHITE
+    // HACK: if `ALLOW_BRIGHTNESS_ABOVE_WHITE` is enabled, we may still have a stimulus
     // value outside of the target gamut. We could clip here, but this works too.
     compressed_rgb /= max(1.0, max(compressed_rgb.r, max(compressed_rgb.g, compressed_rgb.b)));
 #endif
 
-    //return srgb_to_hk_adjusted_lightness(compressed_rgb).xxx;
+    //return srgb_to_hk_adjusted_brightness(compressed_rgb).xxx;
     //return compressed_achromatic_luminance.xxx;
 
     return compressed_rgb;
