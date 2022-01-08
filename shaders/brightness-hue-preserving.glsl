@@ -39,6 +39,10 @@
 // Adapting luminance (L_a) used for the H-K adjustment. 20 cd/m2 was used in Sanders and Wyszecki (1964)
 #define HK_ADAPTING_LUMINANCE 20
 
+// Match target compressed brightness while attenuating chroma.
+// Important in the low end, as well as at the high end of blue and red.
+#define USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION 1
+
 // The stimulus with the highest displayable brightness is not "white" 100% r, g, and b,
 // but depends on the Helmholtz-Kohlrausch effect.
 // That is somewhat problematic for us, as the display transform here is based on compressing
@@ -214,12 +218,22 @@ float3 compress_stimulus(float3 input) {
     {
 		float3 perceptual_mid = lerp(perceptual, perceptual_white, s0);
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
+
+        #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
+            const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+            compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
+        #endif
     }
 
     if (!is_inside_target_gamut(compressed_rgb)) {
     	for (int i = 0; i < 24; ++i) {
     		float3 perceptual_mid = lerp(perceptual, perceptual_white, lerp(s0, s1, 0.5));
     		compressed_rgb = perceptual_to_linear(perceptual_mid);
+
+            #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
+                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+                compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
+            #endif
 
             // Note: allow to exceed the gamut when `max_output_scale` > 1.0.
             // If we don't, we get a sharp cut to "white" with ALLOW_BRIGHTNESS_ABOVE_WHITE.
