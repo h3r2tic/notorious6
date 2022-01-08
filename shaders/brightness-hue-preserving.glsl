@@ -36,8 +36,8 @@
 // Choose the method for performing the H-K adjustment
 #define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_NAYATANI
 
-// Adapting luminance (L_a) used for the H-K adjustment; Nayatani 1998 used 63.66.
-#define HK_ADAPTING_LUMINANCE 63.66
+// Adapting luminance (L_a) used for the H-K adjustment. 20 cd/m2 was used in Sanders and Wyszecki (1964)
+#define HK_ADAPTING_LUMINANCE 20
 
 // The stimulus with the highest displayable brightness is not "white" 100% r, g, and b,
 // but depends on the Helmholtz-Kohlrausch effect.
@@ -48,7 +48,7 @@
 // If `ALLOW_BRIGHTNESS_ABOVE_WHITE` is 1, the compressed stimulus is allowed to exceed
 // that range, at the cost of the output brightness curve having an inflection point, with the
 // brightness briefly exceeding max, and then going back to max as chroma attenuates.
-#define ALLOW_BRIGHTNESS_ABOVE_WHITE 1
+#define ALLOW_BRIGHTNESS_ABOVE_WHITE 0
 
 // if 1, the gamut will be trimmed at the "notorious 6" corners.
 // if 0, the whole gamut is used.
@@ -59,8 +59,8 @@
 
 // Controls for manual desaturation of lighter than "white" stimulus (greens, yellows);
 // see comments in the code for more details.
-#define CHROMA_ATTENUATION_START 0.7
-#define CHROMA_ATTENUATION_EXPONENT 3.0
+#define CHROMA_ATTENUATION_START 0.75
+#define CHROMA_ATTENUATION_EXPONENT 2.0
 // ----------------------------------------------------------------
 
 
@@ -103,8 +103,7 @@ float srgb_to_luminance(float3 col) {
 float srgb_to_hk_adjusted_brightness(float3 input) {
 #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
     const float luminance = srgb_to_luminance(input);
-    const float3 xyz = RGBToXYZ(input / max(1e-10, luminance));
-    const float2 uv = cie_XYZ_to_Luv_uv(xyz);
+    const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(input));
     const float luv_brightness = hsluv_yToL(luminance);
     const float mult = nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
     return hsluv_lToY(luv_brightness * mult);
@@ -162,7 +161,7 @@ float3 compress_stimulus(float3 input) {
     // Compress the brightness. We will then adjust the chromatic input stimulus to match this.
     // Note that this is not the non-linear "L*", but a 0..`max_output_scale` value as a multilpier
     // over the maximum achromatic luminance.
-	const float compressed_achromatic_luminance = compress_brightness(input_brightness / max_output_scale) * max_output_scale;
+    const float compressed_achromatic_luminance = compress_brightness(input_brightness / max_output_scale) * max_output_scale;
 
     // Scale the chromatic stimulus so that its luminance matches `compressed_achromatic_luminance`.
     // TODO: Overly simplistic, and does not accurately map the brightness.
