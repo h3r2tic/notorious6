@@ -220,8 +220,10 @@ float3 compress_stimulus(float3 input) {
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
 
         #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
-            const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
-            compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
+            for (int i = 0; i < 2; ++i) {
+                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+                compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
+            }
         #endif
     }
 
