@@ -63,8 +63,8 @@
 
 // Controls for manual desaturation of lighter than "white" stimulus (greens, yellows);
 // see comments in the code for more details.
-#define CHROMA_ATTENUATION_START 0.75
-#define CHROMA_ATTENUATION_EXPONENT 2.0
+#define CHROMA_ATTENUATION_START 0.0
+#define CHROMA_ATTENUATION_EXPONENT 4.0
 // ----------------------------------------------------------------
 
 
