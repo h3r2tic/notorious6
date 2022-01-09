@@ -1,4 +1,5 @@
 mod app_state;
+mod fbo;
 mod file;
 mod image_loading;
 mod image_pool;

@@ -1,4 +1,5 @@
 use crate::{
+    fbo::Fbo,
     image_pool::*,
     shader::{AnyShadersChanged, ShaderKey, ShaderLib},
     texture::Texture,
@@ -102,25 +103,8 @@ impl AppState {
                 .get_shader_gl_handle(&self.shaders[self.current_shader]);
 
             if let Some((texture, shader)) = texture.zip(shader) {
-                let mut fbo: u32 = 0;
-                gl.GenFramebuffers(1, &mut fbo);
-                gl.BindFramebuffer(gl::FRAMEBUFFER, fbo);
-
-                let mut rbo = 0;
-                gl.GenRenderbuffers(1, &mut rbo);
-                gl.BindRenderbuffer(gl::RENDERBUFFER, rbo);
-                gl.RenderbufferStorage(
-                    gl::RENDERBUFFER,
-                    gl::SRGB8_ALPHA8,
-                    texture.size[0] as _,
-                    texture.size[1] as _,
-                );
-                gl.FramebufferRenderbuffer(
-                    gl::FRAMEBUFFER,
-                    gl::COLOR_ATTACHMENT0,
-                    gl::RENDERBUFFER,
-                    rbo,
-                );
+                let fbo = Fbo::new(gl, texture.size);
+                fbo.bind(gl);
 
                 draw_texture(gl, texture, shader, texture.size, self.ev);
 
@@ -139,8 +123,8 @@ impl AppState {
                 let x_offset = (physical_window_size[0] as i32 - width) / 2;
                 let y_offset = (physical_window_size[1] as i32 - height) / 2;
 
-                gl.BindFramebuffer(gl::FRAMEBUFFER, 0);
-                gl.BindFramebuffer(gl::READ_FRAMEBUFFER, fbo);
+                fbo.unbind(gl);
+                fbo.bind_read(gl);
 
                 gl.ClearColor(0.1, 0.1, 0.1, 1.0);
                 gl.Clear(gl::COLOR_BUFFER_BIT);
@@ -157,9 +141,8 @@ impl AppState {
                     gl::LINEAR,
                 );
 
-                gl.BindFramebuffer(gl::READ_FRAMEBUFFER, 0);
-                gl.DeleteRenderbuffers(1, &rbo);
-                gl.DeleteFramebuffers(1, &fbo);
+                fbo.unbind_read(gl);
+                fbo.destroy(gl);
             } else {
                 if shader.is_none() {
                     gl.ClearColor(0.5, 0.0, 0.0, 1.0);
