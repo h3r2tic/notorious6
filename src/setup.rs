@@ -11,6 +11,8 @@ pub fn setup_basic_gl_state(gl: &gl::Gl) {
             CStr::from_ptr(gl.GetString(gl::RENDERER) as *const i8)
         );
 
+        gl.Enable(gl::FRAMEBUFFER_SRGB);
+
         gl.DebugMessageCallback(Some(gl_debug_message), std::ptr::null_mut());
 
         // Disable everything by default

@@ -7,7 +7,11 @@ use crate::{
 use anyhow::Context;
 use glutin::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 use jpeg_encoder::{ColorType, Encoder};
-use std::{ffi::c_void, path::PathBuf, sync::Arc};
+use std::{
+    ffi::c_void,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use turbosloth::LazyCache;
 
 #[derive(Default)]
@@ -16,7 +20,12 @@ struct InteractionState {
     last_cursor_position: [f64; 2],
 }
 
-struct PendingImageCapture {}
+pub struct PendingImageCapture {
+    ev: f64,
+    file_path: PathBuf,
+    image_index: usize,
+    shader_index: usize,
+}
 
 pub struct AppState {
     image_pool: ImagePool,
@@ -26,7 +35,7 @@ pub struct AppState {
     _lazy_cache: Arc<LazyCache>,
     shaders: Vec<ShaderKey>,
     interaction: InteractionState,
-    pending_image_capture: Option<PendingImageCapture>,
+    pub pending_image_capture: Vec<PendingImageCapture>,
     pub ev: f64,
 }
 
@@ -82,7 +91,7 @@ impl AppState {
             _lazy_cache: lazy_cache,
             shaders,
             interaction: Default::default(),
-            pending_image_capture: None,
+            pending_image_capture: Default::default(),
             ev: 0.0,
         })
     }
@@ -91,13 +100,35 @@ impl AppState {
         self.shader_lib.compile_all(gl)
     }
 
+    pub fn process_batched_requests(&mut self, gl: &gl::Gl) -> anyhow::Result<()> {
+        for pending in self.pending_image_capture.drain(..) {
+            let texture = match self.image_pool.get_texture(pending.image_index, gl) {
+                Some(texture) => texture,
+                None => continue,
+            };
+
+            let fbo = Fbo::new(gl, texture.size);
+            fbo.bind(gl);
+
+            let shader = self
+                .shader_lib
+                .get_shader_gl_handle(&self.shaders[pending.shader_index])
+                .expect("get_shader_gl_handle");
+
+            draw_texture(gl, texture, shader, texture.size, pending.ev);
+            Self::capture_screenshot(gl, texture, &pending.file_path)?;
+            log::info!("Saved {:?}", pending.file_path);
+
+            fbo.destroy(gl);
+        }
+
+        Ok(())
+    }
+
     pub fn draw_frame(&mut self, gl: &gl::Gl, physical_window_size: [usize; 2]) {
         let texture = self.image_pool.get_texture(self.current_image, gl);
-        let pending_image_capture = self.pending_image_capture.take();
 
         unsafe {
-            gl.Enable(gl::FRAMEBUFFER_SRGB);
-
             let shader = self
                 .shader_lib
                 .get_shader_gl_handle(&self.shaders[self.current_shader]);
@@ -107,10 +138,6 @@ impl AppState {
                 fbo.bind(gl);
 
                 draw_texture(gl, texture, shader, texture.size, self.ev);
-
-                if let Some(_pending_image_capture) = pending_image_capture {
-                    Self::capture_screenshot(gl, texture);
-                }
 
                 let width_frac: f64 = texture.size[0] as f64 / physical_window_size[0] as f64;
                 let height_frac: f64 = texture.size[1] as f64 / physical_window_size[1] as f64;
@@ -155,8 +182,12 @@ impl AppState {
         }
     }
 
-    fn capture_screenshot(gl: &gl::Gl, texture: &Texture) {
+    fn capture_screenshot(gl: &gl::Gl, texture: &Texture, file_path: &Path) -> anyhow::Result<()> {
         let mut pixels = vec![0u8; texture.size.into_iter().product::<usize>() * 4];
+
+        if let Some(parent_dir) = file_path.parent() {
+            std::fs::create_dir_all(parent_dir)?;
+        }
 
         unsafe {
             gl.PixelStorei(gl::UNPACK_ALIGNMENT, 1);
@@ -172,18 +203,21 @@ impl AppState {
         }
 
         // Flip it
-        let mut rows = pixels.as_mut_slice();
-        let row_bytes = texture.size[0] * 4;
-        while !rows.is_empty() {
-            let (a, rest) = rows.split_at_mut(row_bytes);
-            rows = rest;
-            let (rest, b) = rows.split_at_mut(rows.len() - row_bytes);
-            rows = rest;
-            a.swap_with_slice(b);
+        {
+            let mut pixels = pixels.as_mut_slice();
+            let row_bytes = texture.size[0] * 4;
+            while pixels.len() >= row_bytes * 2 {
+                let (a, rest) = pixels.split_at_mut(row_bytes);
+                pixels = rest;
+                let (rest, b) = pixels.split_at_mut(pixels.len() - row_bytes);
+                pixels = rest;
+                a.swap_with_slice(b);
+            }
         }
 
         // Create new encoder that writes to a file with maximum quality (100)
-        let encoder = Encoder::new_file("screenshot.jpg", 90).expect("Encoder::new_file");
+        let encoder = Encoder::new_file(file_path, 90)
+            .with_context(|| format!("Failed to create {:?}", file_path))?;
 
         encoder
             .encode(
@@ -192,7 +226,9 @@ impl AppState {
                 texture.size[1] as _,
                 ColorType::Rgba,
             )
-            .expect("encoder.encode");
+            .context("encoder.encode")?;
+
+        Ok(())
     }
 
     fn handle_keyboard_input(&mut self, input: KeyboardInput) -> NeedsRedraw {
@@ -222,7 +258,12 @@ impl AppState {
                 NeedsRedraw::Yes
             }
             Some(VirtualKeyCode::F12) => {
-                self.pending_image_capture = Some(PendingImageCapture {});
+                self.pending_image_capture = vec![PendingImageCapture {
+                    ev: self.ev,
+                    file_path: "screenshot.jpg".into(),
+                    image_index: self.current_image,
+                    shader_index: self.current_shader,
+                }];
                 NeedsRedraw::Yes
             }
             _ => NeedsRedraw::No,
@@ -256,6 +297,60 @@ impl AppState {
 
     pub fn current_shader(&self) -> String {
         self.shaders[self.current_shader].name()
+    }
+
+    pub fn current_image_name(&self) -> Option<String> {
+        self.image_pool
+            .get_image_path(self.current_image)
+            .and_then(|path| Some(path.file_name()?.to_string_lossy().as_ref().to_owned()))
+    }
+
+    pub fn request_batch(
+        &mut self,
+        ev_min: f64,
+        ev_max: f64,
+        ev_step: f64,
+        shader_name: &str,
+    ) -> anyhow::Result<()> {
+        let root_dir = &PathBuf::from("batch");
+        let shader_index = self
+            .shaders
+            .iter()
+            .position(|shader| shader.name() == shader_name)
+            .ok_or_else(|| anyhow::anyhow!("Unknown shader {:?}", shader_name))?;
+
+        let mut batch = {
+            let slf: &AppState = self;
+            let image_count = self.image_pool.image_count();
+            (0..image_count)
+                .flat_map(|image_index| {
+                    slf.image_pool
+                        .get_image_path(image_index)
+                        .into_iter()
+                        .flat_map(move |image_path| {
+                            let step_count =
+                                ((ev_max - ev_min) / ev_step + 0.5).ceil().max(1.0) as usize;
+
+                            (0..step_count).map(move |step_index| {
+                                let ev = ev_min + ev_step * step_index as f64;
+
+                                PendingImageCapture {
+                                    ev,
+                                    file_path: root_dir
+                                        .join(image_path.file_name().unwrap())
+                                        .join(format!("{:03} - EV {}.jpg", step_index, ev)),
+                                    image_index,
+                                    shader_index,
+                                }
+                            })
+                        })
+                })
+                .collect::<Vec<PendingImageCapture>>()
+        };
+
+        self.pending_image_capture.append(&mut batch);
+
+        Ok(())
     }
 }
 

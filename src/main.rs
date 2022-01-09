@@ -9,6 +9,7 @@ mod texture;
 
 use std::path::PathBuf;
 
+use anyhow::Context;
 use app_state::*;
 use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
@@ -18,7 +19,7 @@ use shader::AnyShadersChanged;
 
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
+#[derive(StructOpt)]
 #[structopt(name = "notorious6", about = "HDR display mapping stuffs.")]
 struct Opt {
     #[structopt(
@@ -27,6 +28,37 @@ struct Opt {
         help = "A single file or a folder containing .exr or .hdr images"
     )]
     input: PathBuf,
+
+    #[structopt(subcommand)]
+    cmd: Option<Command>,
+}
+
+#[derive(StructOpt)]
+#[structopt(settings = &[structopt::clap::AppSettings::AllowNegativeNumbers])]
+struct BatchCmd {
+    /// Name of the shader, without the path or file extension, e.g. "linear"
+    #[structopt(long)]
+    shader: String,
+
+    /// Min EV
+    #[structopt(long)]
+    ev_min: f64,
+
+    /// Max EV
+    #[structopt(long)]
+    ev_max: f64,
+
+    /// EV step
+    #[structopt(long, default_value = "1.0")]
+    ev_step: f64,
+}
+
+#[derive(StructOpt)]
+enum Command {
+    /// Runs an interactive image viewer (default)
+    View,
+    /// Batch-processes images
+    Batch(BatchCmd),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -51,6 +83,20 @@ fn main() -> anyhow::Result<()> {
     setup::setup_basic_gl_state(&gl);
 
     let mut state = AppState::new(opt.input, &gl)?;
+    let mut exit_upon_batch_completion = false;
+
+    if let Some(Command::Batch(BatchCmd {
+        shader,
+        ev_min,
+        ev_max,
+        ev_step,
+    })) = opt.cmd
+    {
+        state
+            .request_batch(ev_min, ev_max, ev_step, &shader)
+            .context("state.request_batch")?;
+        exit_upon_batch_completion = true;
+    }
 
     el.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -72,10 +118,25 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 windowed_context.window().set_title(&format!(
-                    "notorious6 | EV {:2.2} | {}",
+                    "{} | EV {:2.2} | {}",
+                    state
+                        .current_image_name()
+                        .unwrap_or_else(|| "notorious6".to_owned()),
                     state.ev,
                     state.current_shader()
                 ));
+
+                match state.process_batched_requests(&gl) {
+                    Ok(_) => (),
+                    Err(err) => {
+                        log::error!("Batch processing error: {:?}", err);
+                        *control_flow = ControlFlow::Exit
+                    }
+                }
+
+                if state.pending_image_capture.is_empty() && exit_upon_batch_completion {
+                    *control_flow = ControlFlow::Exit;
+                }
             }
             Event::RedrawRequested(_) => {
                 let window_size = windowed_context.window().inner_size();

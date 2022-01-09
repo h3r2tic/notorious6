@@ -80,6 +80,10 @@ impl ImagePool {
         }
     }
 
+    pub fn get_image_path(&self, idx: usize) -> Option<&PathBuf> {
+        self.images.get(idx).map(|img| &img.path)
+    }
+
     pub fn image_count(&self) -> usize {
         self.images.len()
     }

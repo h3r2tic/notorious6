@@ -74,6 +74,8 @@ impl Fbo {
 
 impl Drop for Fbo {
     fn drop(&mut self) {
-        assert!(self.fbo == 0, "Fbo must be manually destroyed");
+        if self.fbo != 0 {
+            log::error!("Fbo must be manually destroyed");
+        }
     }
 }
