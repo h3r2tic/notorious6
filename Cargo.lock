@@ -885,6 +885,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
 
 [[package]]
+name = "jpeg-encoder"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfb34c7ff960aaee786db93e7bb779912555a632e8043ae92b68e868c0ec15c4"
+
+[[package]]
 name = "js-sys"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1194,6 +1200,7 @@ dependencies = [
  "gl",
  "glutin",
  "hotwatch",
+ "jpeg-encoder",
  "lazy_static",
  "log",
  "parking_lot",

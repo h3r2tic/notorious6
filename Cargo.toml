@@ -13,6 +13,7 @@ failure = "0.1.8"   # for shader-prepper: TODO: NUKE
 gl = { path = "lib/gl" }
 glutin = "0.28"
 hotwatch = "0.4.6"
+jpeg-encoder = "0.4"
 lazy_static = "1.4"
 log = "0.4"
 parking_lot = "0.11"

@@ -61,6 +61,8 @@ extern "system" fn gl_debug_message(
         let is_ignored_id = match id {
             131216 => true, // Program/shader state info: GLSL shader * failed to compile. WAT.
             131185 => true, // Buffer detailed info: (...) will use (...) memory as the source for buffer object operations.
+            131169 => true, // Framebuffer detailed info: The driver allocated storage for renderbuffer
+            131154 => true, // Pixel-path performance warning: Pixel transfer is synchronized with 3D rendering.
             _ => false,
         };
 
