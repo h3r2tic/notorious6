@@ -173,13 +173,6 @@ float3 compress_stimulus(float3 input) {
     // This will create (mostly) matching brightness, but potentially out of gamut components.
     float3 compressed_rgb = (max_intensity_rgb / max_intensity_brightness) * compressed_achromatic_luminance;
 
-    #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
-        for (int i = 0; i < 2; ++i) {
-            const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
-            compressed_rgb *= compressed_achromatic_luminance / max(1e-10, current_brightness);
-        }
-    #endif
-
     // The achromatic stimulus we'll interpolate towards to fix out-of-gamut stimulus.
     const float clamped_compressed_achromatic_luminance = min(1.0, compressed_achromatic_luminance);
 
@@ -225,6 +218,13 @@ float3 compress_stimulus(float3 input) {
     {
 		float3 perceptual_mid = lerp(perceptual, perceptual_white, s0);
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
+
+        #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
+            for (int i = 0; i < 2; ++i) {
+                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+                compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
+            }
+        #endif
     }
 
     if (!is_inside_target_gamut(compressed_rgb)) {
