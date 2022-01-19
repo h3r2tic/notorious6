@@ -1,11 +1,10 @@
 use anyhow::Context;
 use bytes::Bytes;
 use gl::types::*;
-use lazy_static::lazy_static;
-use regex::Regex;
 use relative_path::RelativePathBuf;
+use shader_prepper::gl_compiler::{compile_shader, ShaderCompilerOutput};
 use std::collections::HashMap;
-use std::iter;
+use std::iter::once;
 use std::path::Path;
 use std::sync::Arc;
 use std::{ffi::CString, path::PathBuf};
@@ -55,7 +54,10 @@ impl<'a> shader_prepper::IncludeProvider for ShaderIncludeProvider {
         &mut self,
         path: &str,
         parent_file: &Self::IncludeContext,
-    ) -> std::result::Result<(String, Self::IncludeContext), failure::Error> {
+    ) -> std::result::Result<
+        (String, Self::IncludeContext),
+        shader_prepper::BoxedIncludeProviderError,
+    > {
         let resolved_path = if let Some('/') = path.chars().next() {
             path.to_owned()
         } else {
@@ -64,113 +66,78 @@ impl<'a> shader_prepper::IncludeProvider for ShaderIncludeProvider {
             folder.join(path).as_str().to_string()
         };
 
-        // println!("shader include '{}' resolved to '{}'", path, resolved_path);
-
         let blob: Arc<Bytes> = smol::block_on(
             crate::file::LoadFile::new(&resolved_path)
-                .map_err(|err| {
-                    failure::err_msg(format!("Failed loading shader include {}: {:?}", path, err))
-                })?
+                .with_context(|| format!("Failed loading shader include {}", path))?
                 .into_lazy()
                 .eval(&self.ctx),
-        )
-        .map_err(|err| failure::format_err!("{}", err))?;
+        )?;
 
-        String::from_utf8(blob.to_vec())
-            .map_err(|e| failure::format_err!("{}", e))
-            .map(|ok| (ok, resolved_path))
+        Ok((String::from_utf8(blob.to_vec())?, resolved_path))
     }
 }
 
-pub(crate) fn make_shader(
+pub(crate) fn make_shader<'chunk>(
     gl: &gl::Gl,
-    shader_type: u32,
-    sources: &[shader_prepper::SourceChunk],
-    postamble: Option<&shader_prepper::SourceChunk>,
+    shader_type: GLenum,
+    sources: impl Iterator<Item = &'chunk shader_prepper::SourceChunk>,
 ) -> anyhow::Result<u32> {
     unsafe {
-        let handle = gl.CreateShader(shader_type);
+        let compiled_shader = compile_shader(sources, |sources| {
+            let handle = gl.CreateShader(shader_type);
 
-        let preamble = shader_prepper::SourceChunk {
-            source: "#version 430\n".to_string(),
-            file: "preamble".to_string(),
-            line_offset: 0,
-        };
+            let (source_lengths, source_ptrs): (Vec<GLint>, Vec<*const GLchar>) = sources
+                .iter()
+                .map(|s| (s.len() as GLint, s.as_ptr() as *const GLchar))
+                .unzip();
 
-        let mut source_lengths: Vec<GLint> = Vec::new();
-        let mut source_ptrs: Vec<*const GLchar> = Vec::new();
-
-        let mod_sources: Vec<_> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| shader_prepper::SourceChunk {
-                source: format!("#line 0 {}\n", i + 1) + &s.source,
-                line_offset: s.line_offset,
-                file: s.file.clone(),
-            })
-            .collect();
-
-        for s in iter::once(&preamble)
-            .chain(mod_sources.iter())
-            .chain(postamble.into_iter())
-        {
-            //println!("{}", s.source);
-            source_lengths.push(s.source.len() as GLint);
-            source_ptrs.push(s.source.as_ptr() as *const GLchar);
-        }
-
-        gl.ShaderSource(
-            handle,
-            source_ptrs.len() as i32,
-            source_ptrs.as_ptr(),
-            source_lengths.as_ptr(),
-        );
-        gl.CompileShader(handle);
-
-        let mut shader_ok: gl::types::GLint = 1;
-        gl.GetShaderiv(handle, gl::COMPILE_STATUS, &mut shader_ok);
-
-        if shader_ok != 1 {
-            let mut log_len: gl::types::GLint = 0;
-            gl.GetShaderiv(handle, gl::INFO_LOG_LENGTH, &mut log_len);
-
-            let log_str = CString::from_vec_unchecked(vec![b'\0'; (log_len + 1) as usize]);
-
-            gl.GetShaderInfoLog(
+            gl.ShaderSource(
                 handle,
-                log_len,
-                std::ptr::null_mut(),
-                log_str.as_ptr() as *mut gl::types::GLchar,
+                source_ptrs.len() as i32,
+                source_ptrs.as_ptr(),
+                source_lengths.as_ptr(),
             );
+            gl.CompileShader(handle);
 
-            let log_str = log_str.to_string_lossy().into_owned();
+            let mut shader_ok: gl::types::GLint = 1;
+            gl.GetShaderiv(handle, gl::COMPILE_STATUS, &mut shader_ok);
 
-            lazy_static! {
-                static ref INTEL_ERROR_RE: Regex =
-                    Regex::new(r"(?m)^ERROR:\s*(\d+):(\d+)").unwrap();
+            if shader_ok != 1 {
+                let mut log_len: gl::types::GLint = 0;
+                gl.GetShaderiv(handle, gl::INFO_LOG_LENGTH, &mut log_len);
+
+                let log_str = CString::from_vec_unchecked(vec![b'\0'; (log_len + 1) as usize]);
+                gl.GetShaderInfoLog(
+                    handle,
+                    log_len,
+                    std::ptr::null_mut(),
+                    log_str.as_ptr() as *mut gl::types::GLchar,
+                );
+
+                gl.DeleteShader(handle);
+
+                ShaderCompilerOutput {
+                    artifact: None,
+                    log: Some(log_str.to_string_lossy().into_owned()),
+                }
+            } else {
+                ShaderCompilerOutput {
+                    artifact: Some(handle),
+                    log: None,
+                }
             }
+        });
 
-            lazy_static! {
-                static ref NV_ERROR_RE: Regex = Regex::new(r"(?m)^(\d+)\((\d+)\)\s*").unwrap();
+        if let Some(shader) = compiled_shader.artifact {
+            if let Some(log) = compiled_shader.log {
+                log::info!("Shader compiler output: {}", log);
             }
-
-            let error_replacement = |captures: &regex::Captures| -> String {
-                let chunk = captures[1].parse::<usize>().unwrap().max(1) - 1;
-                let line = captures[2].parse::<usize>().unwrap();
-                format!(
-                    "{}({})",
-                    sources[chunk].file,
-                    line + sources[chunk].line_offset
-                )
-            };
-
-            let pretty_log = INTEL_ERROR_RE.replace_all(&log_str, error_replacement);
-            let pretty_log = NV_ERROR_RE.replace_all(&pretty_log, error_replacement);
-
-            gl.DeleteShader(handle);
-            anyhow::bail!("Shader failed to compile: {}", pretty_log.to_string());
+            Ok(shader)
         } else {
-            Ok(handle)
+            anyhow::bail!(
+                "Shader failed to compile: {}",
+                compiled_shader.log.as_deref().unwrap_or("Unknown error")
+            );
         }
     }
 }
@@ -251,25 +218,21 @@ pub enum AnyShadersChanged {
 
 impl ShaderLib {
     pub fn new(lazy_cache: &Arc<LazyCache>, gl: &gl::Gl) -> Self {
-        let vs = make_shader(
-            gl,
-            gl::VERTEX_SHADER,
-            &[shader_prepper::SourceChunk {
-                file: "no_file".to_string(),
-                line_offset: 0,
-                source: r#"
-                    out vec2 input_uv;
-                    void main()
-                    {
-                        input_uv = vec2(gl_VertexID & 1, gl_VertexID >> 1) * 2.0;
-                        // Note: V flipped because our textures are flipped in memory
-                        gl_Position = vec4(input_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0, 1);
-                    }"#
-                .to_string(),
-            }],
-            None,
-        )
-        .expect("Vertex shader failed to compile");
+        let source = shader_prepper::SourceChunk::from_file_source(
+            "no_file",
+            r#"
+                #version 430
+                out vec2 input_uv;
+                void main()
+                {
+                    input_uv = vec2(gl_VertexID & 1, gl_VertexID >> 1) * 2.0;
+                    // Note: V flipped because our textures are flipped in memory
+                    gl_Position = vec4(input_uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0, 1);
+                }"#,
+        );
+
+        let vs = make_shader(gl, gl::VERTEX_SHADER, once(&source))
+            .expect("Vertex shader failed to compile");
 
         Self {
             shaders: Default::default(),
@@ -295,16 +258,14 @@ impl ShaderLib {
     pub fn compile_all(&mut self, gl: &gl::Gl) -> AnyShadersChanged {
         let mut any_shaders_changed = AnyShadersChanged::No;
 
-        let ps_postamble = shader_prepper::SourceChunk {
-            source: r#"
+        let ps_postamble = shader_prepper::SourceChunk::from_file_source(
+            "postamble",
+            r#"
             void main() {
                 SHADER_MAIN_FN
             }
-            "#
-            .to_string(),
-            file: "postamble".to_string(),
-            line_offset: 0,
-        };
+            "#,
+        );
 
         for shader in self.shaders.values_mut() {
             if !shader.preprocessed_ps.is_up_to_date() {
@@ -312,12 +273,9 @@ impl ShaderLib {
                     smol::block_on(shader.preprocessed_ps.eval(&self.lazy_cache))
                         .context("Preprocessing")
                         .and_then(|ps_src| {
-                            make_shader(
-                                gl,
-                                gl::FRAGMENT_SHADER,
-                                &ps_src.source,
-                                Some(&ps_postamble),
-                            )
+                            let sources = ps_src.source.iter().chain(once(&ps_postamble));
+
+                            make_shader(gl, gl::FRAGMENT_SHADER, sources)
                         })
                         .context("Compiling the pixel shader")
                         .and_then(|ps| make_program(gl, &[self.vs_handle, ps]));

@@ -2,6 +2,10 @@ pub fn setup_basic_gl_state(gl: &gl::Gl) {
     use std::ffi::CStr;
 
     unsafe {
+        let mut vao: u32 = 0;
+        gl.GenVertexArrays(1, &mut vao);
+        gl.BindVertexArray(vao);
+
         log::info!(
             "GL_VENDOR: {:?}",
             CStr::from_ptr(gl.GetString(gl::VENDOR) as *const i8)
