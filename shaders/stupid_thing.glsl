@@ -1,5 +1,3 @@
-// TL;DR: Compress brightness, preserve chroma by desaturation.
-
 #include "inc/prelude.glsl"
 #include "inc/ictcp.hlsl"
 #include "inc/luv.hlsl"
@@ -9,8 +7,37 @@
 #include "inc/h-k.hlsl"
 #include "inc/ycbcr.hlsl"
 
+// `uv`: CIE LUV u' and v'
+// `adapt_lum`: adating luminance (L_a)
+float hack_nayatani_hk_lightness_adjustment_multiplier(float2 uv, float adapt_lum) {
+    const float2 d65_uv = cie_xy_to_Luv_uv(float2(0.31271, 0.32902));
+    const float u_white = d65_uv[0];
+    const float v_white = d65_uv[1];
+
+    uv -= float2(u_white, v_white);
+
+    float theta = atan2(uv[1], uv[0]);
+
+    float q =
+        - 0.01585
+        - 0.03016 * cos(theta) - 0.04556 * cos(2 * theta)
+        - 0.02667 * cos(3 * theta) - 0.00295 * cos(4 * theta)
+        // Hack
+        + 0.2 * sin(theta) + 0.05084 * sin(2 * theta)
+        - 0.01900 * sin(3 * theta) - 0.00764 * sin(4 * theta);
+
+    float kbr = 0.2717 * (6.469 + 6.362 * pow(adapt_lum, 0.4495)) / (6.469 + pow(adapt_lum, 0.4495));
+
+    // Hack
+    float suv = 13.0 * length(uv * float2(1.2, 1.3));
+
+    // Hack
+    return 1.0 + (-0.3 * q + 0.0872 * kbr) * suv;
+}
+
 // The space to perform chroma attenuation in. More details in the `compress_stimulus` function.
-// Oklab works best, with ICtCp being a close second.
+// Oklab works well, but fails at pure blues.
+// ICtCp seems to work pretty well all around.
 // LUV and None don't provide Abney correction.
 #define PERCEPTUAL_SPACE_OKLAB 0
 #define PERCEPTUAL_SPACE_LUV 1
@@ -18,8 +45,9 @@
 #define PERCEPTUAL_SPACE_NONE 3
 
 // Helmholtz-Kohlrausch adjustment methods
-#define HK_ADJUSTMENT_METHOD_NAYATANI 0
-#define HK_ADJUSTMENT_METHOD_NONE 1
+#define HK_ADJUSTMENT_METHOD_NONE 0
+#define HK_ADJUSTMENT_METHOD_NAYATANI 1
+#define HK_ADJUSTMENT_METHOD_NAYATANI_HACK 2
 
 // Brightness compression curves:
 #define BRIGHTNESS_COMPRESSION_CURVE_REINHARD 0
@@ -31,10 +59,10 @@
 #define BRIGHTNESS_COMPRESSION_CURVE BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
 
 // Choose the perceptual space for chroma attenuation.
-#define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_OKLAB
+#define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_ICTCP
 
 // Choose the method for performing the H-K adjustment
-#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_NAYATANI
+#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_NAYATANI_HACK
 
 // Adapting luminance (L_a) used for the H-K adjustment. 20 cd/m2 was used in Sanders and Wyszecki (1964)
 #define HK_ADAPTING_LUMINANCE 20
@@ -42,17 +70,6 @@
 // Match target compressed brightness while attenuating chroma.
 // Important in the low end, as well as at the high end of blue and red.
 #define USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION 1
-
-// The stimulus with the highest displayable brightness is not "white" 100% r, g, and b,
-// but depends on the Helmholtz-Kohlrausch effect.
-// That is somewhat problematic for us, as the display transform here is based on compressing
-// brightness to a range of up to a maximum achromatic signal of the output device.
-// If `ALLOW_BRIGHTNESS_ABOVE_WHITE` is 0, yellows and greens are never allowed to reach
-// full intensity, as that results in brightness above that of "white".
-// If `ALLOW_BRIGHTNESS_ABOVE_WHITE` is 1, the compressed stimulus is allowed to exceed
-// that range, at the cost of the output brightness curve having an inflection point, with the
-// brightness briefly exceeding max, and then going back to max as chroma attenuates.
-#define ALLOW_BRIGHTNESS_ABOVE_WHITE 0
 
 // if 1, the gamut will be trimmed at the "notorious 6" corners.
 // if 0, the whole gamut is used.
@@ -63,8 +80,8 @@
 
 // Controls for manual desaturation of lighter than "white" stimulus (greens, yellows);
 // see comments in the code for more details.
-#define CHROMA_ATTENUATION_START 0.0
-#define CHROMA_ATTENUATION_EXPONENT 4.0
+#define CHROMA_ATTENUATION_START 0.5
+#define CHROMA_ATTENUATION_EXPONENT 2.0
 // ----------------------------------------------------------------
 
 
@@ -87,7 +104,8 @@
 float compress_brightness(float v) {
 	#if BRIGHTNESS_COMPRESSION_CURVE == BRIGHTNESS_COMPRESSION_CURVE_REINHARD
 		// Reinhard
-		return v / (v + 1.0);
+        const float k = 1.0;
+		return pow(pow(v, k) / (pow(v, k) + 1.0), 1.0 / k);
 	#elif BRIGHTNESS_COMPRESSION_CURVE == BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
 		// From Jed Smith: https://github.com/jedypod/open-display-transform/wiki/tech_tonescale,
         // based on stuff from Daniele Siragusano: https://community.acescentral.com/t/output-transform-tone-scale/3498/14
@@ -111,6 +129,12 @@ float srgb_to_hk_adjusted_brightness(float3 input) {
     const float luv_brightness = hsluv_yToL(luminance);
     const float mult = nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
     return hsluv_lToY(luv_brightness * mult);
+#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI_HACK
+    const float luminance = srgb_to_luminance(input);
+    const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(input));
+    const float luv_brightness = hsluv_yToL(luminance);
+    const float mult = nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
+    return hsluv_lToY(luv_brightness) * pow(mult, 3.5);
 #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
     return srgb_to_luminance(input);
 #endif
@@ -143,6 +167,24 @@ bool is_inside_target_gamut(float3 pos) {
 }
 
 float3 compress_stimulus(ShaderInput input) {
+    // herp derp saturation of cones
+    if (true) {
+        float3 stimulus = input.stimulus;
+        const float input_brightness = srgb_to_hk_adjusted_brightness(stimulus);
+
+        const float k = 16.0;
+        const float p = 1.0;
+        stimulus = Primaries_BT2020_to_LMS(Primaries_BT709_to_BT2020(stimulus));
+        stimulus /= k;
+        stimulus = max(stimulus, 0.0.xxx);
+        stimulus = stimulus * pow(pow(stimulus, p.xxx) + 1.0, -1.0 / p.xxx);
+        stimulus *= k;
+        stimulus = Primaries_BT2020_to_BT709(Primaries_LMS_to_BT2020(stimulus));
+        
+        stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
+        input.stimulus = stimulus;
+    }
+
     // Find the input brightness adjusted by the Helmholtz-Kohlrausch effect.
     const float input_brightness = srgb_to_hk_adjusted_brightness(input.stimulus);
 
@@ -151,22 +193,15 @@ float3 compress_stimulus(ShaderInput input) {
     const float3 max_intensity_rgb = input.stimulus / max(input.stimulus.r, max(input.stimulus.g, input.stimulus.b)).xxx;
     float max_intensity_brightness = srgb_to_hk_adjusted_brightness(max_intensity_rgb);
     //return max_intensity_brightness.xxx - 1.0;
-    //return max_intensity_rgb;
+    //return saturate(max_intensity_rgb);
 
-    #if ALLOW_BRIGHTNESS_ABOVE_WHITE
-        // The `max_intensity_rgb` stimulus can potentially be lighter than "white".
-        //
-        // This is by how much the output brightness will be allowed to exceed
-        // the brightness of the highest luminance achromatic stimulus of the target gamut.
-        float max_output_scale = max(1.0, max_intensity_brightness);
-    #else
-        float max_output_scale = 1.0;
-    #endif
+    const float max_output_scale = 1.0;
 
     // Compress the brightness. We will then adjust the chromatic input stimulus to match this.
     // Note that this is not the non-linear "L*", but a 0..`max_output_scale` value as a multilpier
     // over the maximum achromatic luminance.
     const float compressed_achromatic_luminance = compress_brightness(input_brightness / max_output_scale) * max_output_scale;
+    //const float compressed_achromatic_luminance = smoothstep(0.1, 0.9, input.uv.x);
 
     // Scale the chromatic stimulus so that its luminance matches `compressed_achromatic_luminance`.
     // TODO: Overly simplistic, and does not accurately map the brightness.
@@ -198,37 +233,41 @@ float3 compress_stimulus(ShaderInput input) {
     // Perceptually they look wrong though, as they don't follow the desaturation that other stimulus does.
     // We fix that manually here by biasing the interpolation towards "white" at the end of the brightness range.
     // This "fixes" the yellows and greens.
+    
+    // We'll make the transition towards white smoother in areas of high chromatic strength.
+    float chroma_strength = length(rgb_to_ycbcr(max_intensity_rgb).yz);
+
+    // Fudge deep blue to desaturate quicker
+    chroma_strength = max(chroma_strength, saturate(0.0722 * compressed_rgb.b / srgb_to_luminance(compressed_rgb)));
+
+    const float chroma_attenuation_start = CHROMA_ATTENUATION_START;
+    const float chroma_attenuation_exponent = lerp(CHROMA_ATTENUATION_EXPONENT, 1.0, chroma_strength);
     const float chroma_attenuation = pow(
         saturate(
-            (compressed_achromatic_luminance - max_output_scale * CHROMA_ATTENUATION_START)
-            / (max_output_scale * (1.0 - CHROMA_ATTENUATION_START))
-        ), CHROMA_ATTENUATION_EXPONENT
+            (compressed_achromatic_luminance - min(1, max_intensity_brightness) * chroma_attenuation_start)
+            / ((1.05 * max_output_scale - min(1, max_intensity_brightness) * chroma_attenuation_start))
+        ), chroma_attenuation_exponent
     );
 
-    // The gamut (and the line) is deformed by the perceptual space, making its shape non-trivial.
-    // We also potentially use a trimmed gamut to reduce the presence of the "Notorious 6",
-    // making the gamut shape difficult to intersect analytically.
-    //
-    // The search here is performed in a pretty brute-force way, by performing a binary search.
-    // The number of iterations is chosen in a very conservative way, and could be reduced.
-
-    // Start and end points of our binary search. We'll refine those as we go.
-	float s0 = chroma_attenuation;
-	float s1 = 1;
-
     {
-		float3 perceptual_mid = lerp(perceptual, perceptual_white, s0);
+		const float3 perceptual_mid = lerp(perceptual, perceptual_white, chroma_attenuation);
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
 
         #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
             for (int i = 0; i < 2; ++i) {
                 const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
-                compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
+                compressed_rgb *= compressed_achromatic_luminance / max(1e-10, current_brightness);
             }
         #endif
     }
 
-    if (!is_inside_target_gamut(compressed_rgb)) {
+    // Start and end points of our binary search. We'll refine those as we go.
+	float s0 = chroma_attenuation;
+	float s1 = 1;
+
+    if (!true) if (!is_inside_target_gamut(compressed_rgb)) {
+        const float scale = 1.0;
+
     	for (int i = 0; i < 24; ++i) {
     		float3 perceptual_mid = lerp(perceptual, perceptual_white, lerp(s0, s1, 0.5));
     		compressed_rgb = perceptual_to_linear(perceptual_mid);
@@ -240,7 +279,7 @@ float3 compress_stimulus(ShaderInput input) {
 
             // Note: allow to exceed the gamut when `max_output_scale` > 1.0.
             // If we don't, we get a sharp cut to "white" with ALLOW_BRIGHTNESS_ABOVE_WHITE.
-    		if (is_inside_target_gamut(compressed_rgb / max_output_scale)) {
+    		if (is_inside_target_gamut(compressed_rgb / scale)) {
                 // Mid point inside gamut. Step back.
     			s1 = lerp(s0, s1, 0.5);
     		} else {
@@ -250,11 +289,24 @@ float3 compress_stimulus(ShaderInput input) {
     	}
     }
 
-#if ALLOW_BRIGHTNESS_ABOVE_WHITE
-    // HACK: if `ALLOW_BRIGHTNESS_ABOVE_WHITE` is enabled, we may still have a stimulus
-    // value outside of the target gamut. We could clip here, but this works too.
-    compressed_rgb /= max(1.0, max(compressed_rgb.r, max(compressed_rgb.g, compressed_rgb.b)));
-#endif
+    // At this stage we still have out of gamut colors.
+    // This takes a silly twist now. So far we've been careful to preserve hue...
+    // Now we're going to let the channels clip, but apply a per-channel roll-off.
+    // This sacrificies hue accuracy and brightness to retain saturation.
+
+    if (true) {
+        compressed_rgb = max(compressed_rgb, 0.0.xxx);
+
+        const float p = 8.0;
+        compressed_rgb = compressed_rgb * pow(pow(compressed_rgb, p.xxx) + 1.0, -1.0 / p.xxx);
+
+        const float max_comp = max(compressed_rgb.r, max(compressed_rgb.g, compressed_rgb.b));
+        const float max_comp_dist = max(max_comp - compressed_rgb.r, max(max_comp - compressed_rgb.g, max_comp - compressed_rgb.b));
+
+        // Rescale so we can reach 100% white. Avoid rescaling very highly saturated colors,
+        // as that would reintroduce discontinuities.
+        compressed_rgb /= pow(lerp(0.5, 1.0, max_comp_dist), 1.0 / p);
+    }
 
     //return srgb_to_hk_adjusted_brightness(compressed_rgb).xxx;
     //return compressed_achromatic_luminance.xxx;
