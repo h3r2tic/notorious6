@@ -66,6 +66,7 @@ fn main() -> anyhow::Result<()> {
 
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
+        .with_utc_timestamps()
         .init()
         .unwrap();
 
