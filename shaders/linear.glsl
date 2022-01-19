@@ -1,5 +1,5 @@
 #include "inc/prelude.glsl"
 
-vec3 compress_stimulus(vec3 stimulus) {
-    return stimulus;
+float3 compress_stimulus(ShaderInput input) {
+    return input.stimulus;
 }

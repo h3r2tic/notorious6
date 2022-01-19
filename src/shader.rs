@@ -298,7 +298,7 @@ impl ShaderLib {
         let ps_postamble = shader_prepper::SourceChunk {
             source: r#"
             void main() {
-                output_rgba = vec4(compress_stimulus(exp2(input_ev) * max(0.0.xxx, textureLod(input_texture, input_uv, 0).rgb)), 1.0);
+                SHADER_MAIN_FN
             }
             "#
             .to_string(),

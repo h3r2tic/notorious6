@@ -141,13 +141,13 @@ bool is_inside_target_gamut(float3 pos) {
 		;
 }
 
-float3 compress_stimulus(float3 input) {
+float3 compress_stimulus(ShaderInput input) {
     // Find the input brightness adjusted by the Helmholtz-Kohlrausch effect.
-    const float input_brightness = srgb_to_hk_adjusted_brightness(input);
+    const float input_brightness = srgb_to_hk_adjusted_brightness(input.stimulus);
 
     // The highest displayable intensity stimulus with the same chromaticity as the input,
     // and its associated brightness.
-    const float3 max_intensity_rgb = input / max(input.r, max(input.g, input.b)).xxx;
+    const float3 max_intensity_rgb = input.stimulus / max(input.stimulus.r, max(input.stimulus.g, input.stimulus.b)).xxx;
     float max_intensity_brightness = srgb_to_hk_adjusted_brightness(max_intensity_rgb);
     //return max_intensity_brightness.xxx - 1.0;
     //return max_intensity_rgb;
