@@ -26,6 +26,3 @@ turbosloth = { git = "https://github.com/h3r2tic/turbosloth.git", rev = "92030af
 
 [profile.release]
 debug = 1
-
-# [patch.crates-io]
-# shader-prepper = { path = "../shader-prepper" }

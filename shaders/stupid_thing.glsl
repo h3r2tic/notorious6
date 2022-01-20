@@ -71,17 +71,10 @@ float hack_nayatani_hk_lightness_adjustment_multiplier(float2 uv, float adapt_lu
 // Important in the low end, as well as at the high end of blue and red.
 #define USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION 1
 
-// if 1, the gamut will be trimmed at the "notorious 6" corners.
-// if 0, the whole gamut is used.
-// Not strictly necessary, but smooths-out boundaries where
-// achromatic stimulus begins to be added.
-#define TRIM_GAMUT_CORNERS 1    // 0 or 1
-#define GAMUT_CORNER_CUT_RADII float3(0.25, 0.25, 0.25) // 0..1
-
 // Controls for manual desaturation of lighter than "white" stimulus (greens, yellows);
 // see comments in the code for more details.
-#define CHROMA_ATTENUATION_START 0.5
-#define CHROMA_ATTENUATION_EXPONENT 2.0
+#define CHROMA_ATTENUATION_START 0.25
+#define CHROMA_ATTENUATION_EXPONENT 3.0
 // ----------------------------------------------------------------
 
 
@@ -138,32 +131,6 @@ float srgb_to_hk_adjusted_brightness(float3 shader_input) {
 #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
     return srgb_to_luminance(shader_input);
 #endif
-}
-
-// A square with the (1, 0) and (0, 1) corners circularly trimmed.
-bool is_inside_2d_gamut_slice(float2 pos, float corner_radius) {
-	float2 closest = clamp(pos, float2(0, corner_radius), float2(1 - corner_radius, 1));
-	float2 offset = pos - closest;
-	return dot(offset, offset) <= corner_radius * corner_radius * 1.0001;
-}
-
-bool is_inside_target_gamut(float3 pos) {
-	const float3 rgb_corner_radii = GAMUT_CORNER_CUT_RADII;
-
-	return true
-#if TRIM_GAMUT_CORNERS
-        // Trim red except where green is high or blue is high
-		&& (is_inside_2d_gamut_slice(pos.rg, rgb_corner_radii.r) && is_inside_2d_gamut_slice(pos.rb, rgb_corner_radii.r))
-        // Trim green except where red is high or blue is high
-		&& (is_inside_2d_gamut_slice(pos.gr, rgb_corner_radii.g) && is_inside_2d_gamut_slice(pos.gb, rgb_corner_radii.g))
-        // Trim blue except where red is high or green is high
-		&& (is_inside_2d_gamut_slice(pos.br, rgb_corner_radii.b) && is_inside_2d_gamut_slice(pos.bg, rgb_corner_radii.b))
-#else
-        // Just a box.
-		&& (pos.x <= 1.0 && pos.y <= 1.0 && pos.z <= 1.0)
-        && (pos.x >= 0.0 && pos.y >= 0.0 && pos.z >= 0.0)
-#endif
-		;
 }
 
 float3 compress_stimulus(ShaderInput shader_input) {
@@ -259,34 +226,6 @@ float3 compress_stimulus(ShaderInput shader_input) {
                 compressed_rgb *= compressed_achromatic_luminance / max(1e-10, current_brightness);
             }
         #endif
-    }
-
-    // Start and end points of our binary search. We'll refine those as we go.
-	float s0 = chroma_attenuation;
-	float s1 = 1;
-
-    if (!true) if (!is_inside_target_gamut(compressed_rgb)) {
-        const float scale = 1.0;
-
-    	for (int i = 0; i < 24; ++i) {
-    		float3 perceptual_mid = lerp(perceptual, perceptual_white, lerp(s0, s1, 0.5));
-    		compressed_rgb = perceptual_to_linear(perceptual_mid);
-
-            #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
-                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
-                compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
-            #endif
-
-            // Note: allow to exceed the gamut when `max_output_scale` > 1.0.
-            // If we don't, we get a sharp cut to "white" with ALLOW_BRIGHTNESS_ABOVE_WHITE.
-    		if (is_inside_target_gamut(compressed_rgb / scale)) {
-                // Mid point inside gamut. Step back.
-    			s1 = lerp(s0, s1, 0.5);
-    		} else {
-                // Mid point outside gamut. Step forward.
-    			s0 = lerp(s0, s1, 0.5);
-    		}
-    	}
     }
 
     // At this stage we still have out of gamut colors.
