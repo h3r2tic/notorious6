@@ -7,7 +7,7 @@
 #include "inc/h-k.hlsl"
 #include "inc/ycbcr.hlsl"
 #include "inc/ipt.hlsl"
-#include "inc/bezold_brucke.hlsl"
+//#include "inc/hsluv.glsl"
 
 // The space to perform chroma attenuation in. More details in the `compress_stimulus` function.
 // Oklab works well, but fails at pure blues.
@@ -27,11 +27,12 @@
 // Brightness compression curves:
 #define BRIGHTNESS_COMPRESSION_CURVE_REINHARD 0
 #define BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH 1    // :P
+#define BRIGHTNESS_COMPRESSION_CURVE_LINEAR 2
 
 // ----------------------------------------------------------------
 // Configurable stuff:
 
-#define BRIGHTNESS_COMPRESSION_CURVE BRIGHTNESS_COMPRESSION_CURVE_SIRAGUSANO_SMITH
+#define BRIGHTNESS_COMPRESSION_CURVE BRIGHTNESS_COMPRESSION_CURVE_LINEAR
 
 // Choose the perceptual space for chroma attenuation.
 #define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_IPT
@@ -48,32 +49,10 @@
 
 // Controls for manual desaturation of lighter than "white" stimulus (greens, yellows);
 // see comments in the code for more details.
-#define CHROMA_ATTENUATION_START 0.0
-#define CHROMA_ATTENUATION_EXPONENT_MIN 3.0
-#define CHROMA_ATTENUATION_EXPONENT_MAX 4.0
-
+#define CHROMA_ATTENUATION_START 0.25
+#define CHROMA_ATTENUATION_EXPONENT 3.0
 // ----------------------------------------------------------------
 
-#if 0
-    #define USE_BEZOLD_BRUCKE_SHIFT 0
-    #define HERPDERP 1
-    #define HERPDERP_K 24.0
-    #define ASINSHIFT 1
-    #define WINDOW_ASINSHIFT 0
-    #define SHIFTBIAS 1.03
-#else
-    #define USE_BEZOLD_BRUCKE_SHIFT 1
-    
-    #define HERPDERP 0
-    #define HERPDERP_K 64.0
-
-    #define ASINSHIFT 1
-    #define WINDOW_ASINSHIFT 1
-    #define SHIFTBIAS 1.03
-#endif
-
-#define BEZOLD_BRUCKE_SHIFT_K 8
-#define BEZOLD_BRUCKE_SHIFT_P 1.0
 
 // Based on the selection, define `linear_to_perceptual` and `perceptual_to_linear`
 #if PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_OKLAB
@@ -104,22 +83,92 @@ float compress_brightness(float v) {
         // based on stuff from Daniele Siragusano: https://community.acescentral.com/t/output-transform-tone-scale/3498/14
         // Reinhard with flare compensation.
         const float sx = 1.0;
-        const float p = 1.15;
+        const float p = 1.2;
         const float sy = 1.0205;
 		return saturate(sy * pow(v / (v + sx), p));
+	#elif BRIGHTNESS_COMPRESSION_CURVE == BRIGHTNESS_COMPRESSION_CURVE_LINEAR
+		return saturate(v);
     #endif
-}
-
-float soft_shoulder(float x, float k, float p) {
-    return x / pow(pow(x / k, p) + 1.0, 1.0 / p);
 }
 
 float srgb_to_luminance(float3 col) {
     return rgb_to_ycbcr(col).x;
 }
 
+
+#define PI2 6.283185307179586
+
+float hsluv_from_linear(float x) {
+    return x <= 0.003 ? 13.0 * x : 1.055 * pow(x, 0.416) - 0.055;
+}
+
+vec3 hsluv(float h, float s, float l) {
+    const float[6] N = float[6](
+        /* [1, 1] :: 632260 * M[2] - 126452 * M[1] */ -120846.0,
+        /* [1, 2] :: 284517 * M[0] -  94839 * M[2] */ 969398.0,
+        /* [2, 1] :: 632260 * M[5] - 126452 * M[4] */ -210946.0,
+        /* [2, 2] :: 284517 * M[3] -  94839 * M[5] */ -279707.0,
+        /* [3, 1] :: 632260 * M[8] - 126452 * M[7] */ 694074.0,
+        /* [3, 2] :: 284517 * M[6] -  94839 * M[8] */ -84414.0
+    );
+
+    float hsin = sin(h);
+    float hcos = cos(h);
+
+    float a = l + 16.0;
+    float r;
+    float g;
+    float b = a / 116.0;
+
+    float c;
+    float d;
+    float e = 769860.0 * l;
+
+    int i;
+
+#if 1
+    a = a * a * a / 1560896.0;  //   a is sub1
+    a = a > 0.01 ? a : l / 903.0; // a is sub2
+#endif
+
+    h = 3.402823466e+38;          // h is cmax
+
+    for (; i < 6; ) {
+        r = N[i++] * a;
+        g = N[i++] * a * hcos;
+
+        c = e * a / (r * hsin - g); //                      c is length
+        h = c >= 0.0 ? min(h, c) : h; //                    h is cmax
+
+        c = e * (a - 1.0) / ((r + 126452.0) * hsin - g); // c is length
+        h = c >= 0.0 ? min(h, c) : h; //                    h is cmax
+    }
+
+    h = h / 100.0 * s / (13.0 * l); //       h is c / (13 * l)
+
+    s = hcos * h + 0.19783; //               s is varU
+    h = 1.0 / (hsin * h + 0.4683); //        h is 1 / varV
+
+    l = l <= 8.0 ? l / 903.0 : b * b * b; // l is y
+    s = 9.0 * l * h * s / 4.0; //            s is x
+    h = 3.0 * l * h - s / 3.0 - 5.0 * l; //  h is z
+
+    r = hsluv_from_linear(+3.2410 * s + -1.5373 * l + -0.4986 * h);
+    g = hsluv_from_linear(-0.9692 * s + +1.8760 * l + +0.0416 * h);
+    b = hsluv_from_linear(+0.0556 * s + -0.2040 * l + +1.0570 * h);
+
+    return vec3(r, g, b);
+}
+
+vec3 hsv2rgb( in vec3 c )
+{
+    vec3 rgb = clamp( abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0, 0.0, 1.0 );
+    return c.z * mix( vec3(1.0), rgb, c.y);
+}
+
 // Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
 float srgb_to_hk_adjusted_brightness(float3 shader_input) {
+    //return srgb_to_luminance(shader_input) * 10;
 #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
     const float luminance = srgb_to_luminance(shader_input);
     const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(shader_input));
@@ -137,13 +186,13 @@ float srgb_to_hk_adjusted_brightness(float3 shader_input) {
 #endif
 }
 
-float3 compress_stimulus(ShaderInput shader_input) {
+float3 okrly_compress_stimulus(ShaderInput shader_input) {
     // herp derp saturation of cones
-    if (HERPDERP) {
+    if (true) {
         float3 stimulus = shader_input.stimulus;
         const float input_brightness = srgb_to_hk_adjusted_brightness(stimulus);
 
-        const float k = HERPDERP_K;
+        const float k = 16.0;
         const float p = 1.0;
         stimulus = Primaries_BT2020_to_LMS(Primaries_BT709_to_BT2020(stimulus));
         stimulus /= k;
@@ -153,22 +202,6 @@ float3 compress_stimulus(ShaderInput shader_input) {
         stimulus = Primaries_BT2020_to_BT709(Primaries_LMS_to_BT2020(stimulus));
         
         stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
-        shader_input.stimulus = stimulus;
-    }
-
-    if (USE_BEZOLD_BRUCKE_SHIFT) {
-        const float input_brightness = srgb_to_hk_adjusted_brightness(shader_input.stimulus);
-
-        const float k = BEZOLD_BRUCKE_SHIFT_K;
-        const float p = BEZOLD_BRUCKE_SHIFT_P;
-        const float t = srgb_to_luminance(shader_input.stimulus) / k;
-        float shift_amount = t * pow(pow(t, p) + 1.0, -1.0 / p);
-        //return shift_amount.xxx;
-
-        float3 stimulus = XYZtoRGB(BB_shift_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
-
-        stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
-        
         shader_input.stimulus = stimulus;
     }
 
@@ -226,30 +259,17 @@ float3 compress_stimulus(ShaderInput shader_input) {
     float chroma_strength = LabToLch(XYZToLab(RGBToXYZ(max_intensity_rgb))).y / 100.0 * 0.4;
     //float chroma_strength = 1;
 
+    // Fudge deep blue to desaturate quicker
+    //chroma_strength = max(chroma_strength, saturate(0.0722 * compressed_rgb.b / srgb_to_luminance(compressed_rgb)));
+
     const float chroma_attenuation_start = CHROMA_ATTENUATION_START;
-    const float chroma_attenuation_exponent = lerp(CHROMA_ATTENUATION_EXPONENT_MAX, CHROMA_ATTENUATION_EXPONENT_MIN, chroma_strength);
-    const float chroma_attenuation_t = saturate(
-        (compressed_achromatic_luminance - min(1, max_intensity_brightness) * chroma_attenuation_start)
-        / ((SHIFTBIAS * max_output_scale - min(1, max_intensity_brightness) * chroma_attenuation_start))
+    const float chroma_attenuation_exponent = lerp(CHROMA_ATTENUATION_EXPONENT, 1.0, chroma_strength);
+    const float chroma_attenuation = pow(
+        saturate(
+            (compressed_achromatic_luminance - min(1, max_intensity_brightness) * chroma_attenuation_start)
+            / ((1.05 * max_output_scale - min(1, max_intensity_brightness) * chroma_attenuation_start))
+        ), chroma_attenuation_exponent
     );
-
-#if ASINSHIFT
-    float chroma_attenuation = asin(pow(chroma_attenuation_t, 3.0)) / M_PI * 2;
-
-    const float chroma_attenuation_t2 = saturate(
-        (compressed_achromatic_luminance - min(1, max_intensity_brightness) * 0.9)
-        / ((lerp(SHIFTBIAS, 1.0, 0.9) * max_output_scale - min(1, max_intensity_brightness) * 0.9))
-    );
-
-    #if WINDOW_ASINSHIFT
-    chroma_attenuation = lerp(chroma_attenuation, 1.0,
-        //pow(chroma_attenuation_t2, 16)
-        1.0 - sqrt(saturate(1.0 - pow(chroma_attenuation_t2, 8)))
-    );
-    #endif
-#else
-    const float chroma_attenuation = pow(chroma_attenuation_t, chroma_attenuation_exponent);
-#endif
 
     {
 		const float3 perceptual_mid = lerp(perceptual, perceptual_white, chroma_attenuation);
@@ -271,7 +291,7 @@ float3 compress_stimulus(ShaderInput shader_input) {
     if (true) {
         compressed_rgb = max(compressed_rgb, 0.0.xxx);
 
-        const float p = 12.0;
+        const float p = 8.0;
         compressed_rgb = compressed_rgb * pow(pow(compressed_rgb, p.xxx) + 1.0, -1.0 / p.xxx);
 
         const float max_comp = max(compressed_rgb.r, max(compressed_rgb.g, compressed_rgb.b));
@@ -286,4 +306,84 @@ float3 compress_stimulus(ShaderInput shader_input) {
     //return compressed_achromatic_luminance.xxx;
 
     return compressed_rgb;
+}
+
+vec3 compress_stimulus(ShaderInput shader_input) {
+    shader_input.uv.x = fract(-shader_input.uv.x - 0.14);
+
+    //vec3 res = hsluv(uv.x * PI2, 100.0, (1.0 - uv.y) * 100.0);
+    //vec3 res = hsluvToRgb(uv.x * 360.0, 100.0, (1.0 - uv.y) * 100.0);
+    //vec3 res = lchToRgb(30.0, 100.0, uv.x * 360.0);
+    const float2 quant = float2(42, 24);
+    
+    const float2 uv = floor(shader_input.uv * quant) / quant;
+    //const float2 uv = shader_input.uv;
+
+    float h = uv.x;
+    if (fract(uv.x * 20.0 + 0.3) > 0.85) {
+        //h = fract(h + 0.5);
+    }
+    vec3 res = hsv2rgb(float3(h, 0.999, 1.0));
+    //return res * smoothstep(1.0, 0.0, uv.y);
+
+    res.x = srgb_transfer_function_inv(res.x);
+    res.y = srgb_transfer_function_inv(res.y);
+    res.z = srgb_transfer_function_inv(res.z);
+
+    const float desaturation = 0.1;
+
+    res = lerp(res, srgb_to_luminance(res).xxx, desaturation);
+
+    //return res;
+    //res *= 1.0 - uv.y;
+
+    const float3 hsv_output = res;
+
+    //res = lerp(res, res.yyy, 0.5);
+
+#if 0
+    if (fract(shader_input.uv.x * 20.0 + 0.3) < 0.7) {
+        res = 1.0.xxx;
+    }
+#endif
+
+    for (int i = 0; i < 2; ++i) {
+        res /= srgb_to_hk_adjusted_brightness(res);
+    }
+    
+    res *= smoothstep(1.0, 0.0, uv.y);
+    //res *= pow(1.0 - uv.y, 2.0) / l;
+
+#if 1
+    ShaderInput new_input;
+    new_input.stimulus = res;
+    res = okrly_compress_stimulus(new_input);
+#endif
+
+    if (true) {
+        float h = shader_input.uv.x;
+        vec3 hsv_output = hsv2rgb(float3(h, 0.999, 1.0));
+        hsv_output.x = srgb_transfer_function_inv(hsv_output.x);
+        hsv_output.y = srgb_transfer_function_inv(hsv_output.y);
+        hsv_output.z = srgb_transfer_function_inv(hsv_output.z);
+        
+        hsv_output = lerp(hsv_output, srgb_to_luminance(hsv_output).xxx, desaturation);
+
+        hsv_output /= srgb_to_hk_adjusted_brightness(hsv_output);
+        hsv_output /= srgb_to_hk_adjusted_brightness(hsv_output);
+
+        //float equiv = srgb_to_luminance(hsv_output);
+        float equiv = log(1.0 / srgb_to_luminance(hsv_output)) + 0.1;
+
+        /*float above = (1 - shader_input.uv.y) * 2 > equiv ? 1.0 : 0.0;
+        if (dFdy(above) != 0.0 || dFdx(above) != 0.0) {
+            res *= 0.1;
+        }*/
+
+        if (abs((1 - shader_input.uv.y) * 2 - equiv) < 0.01) {
+            res *= 0.1;
+        }
+    }
+
+    return res;
 }

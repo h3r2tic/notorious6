@@ -67,7 +67,7 @@ impl AppState {
         let mut shader_lib = ShaderLib::new(&lazy_cache, gl);
 
         let shaders_folder = "shaders";
-        let shaders = std::fs::read_dir(shaders_folder)
+        let shaders: Vec<ShaderKey> = std::fs::read_dir(shaders_folder)
             .context("Reading the shaders/ directory")?
             .filter_map(|entry| {
                 let path = entry.ok()?.path();

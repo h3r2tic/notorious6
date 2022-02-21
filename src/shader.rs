@@ -191,7 +191,7 @@ impl CompiledShader {
     }
 }
 
-#[derive(Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct ShaderKey {
     path: PathBuf,
 }
