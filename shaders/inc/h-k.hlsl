@@ -54,7 +54,7 @@ float hack_nayatani_hk_lightness_adjustment_multiplier(float2 uv, float adapt_lu
         0.1,    // greenish cyan
         0.13,    // cyan
         0.06,    // cyan
-        -0.4,    // blue
+        -0.38,    // blue
         -0.27,   // purplish-blue
         -0.27,   // magenta
         -0.24,   // magenta
