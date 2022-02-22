@@ -164,8 +164,6 @@ float3 compress_stimulus(ShaderInput shader_input) {
     }
 
     if (USE_BEZOLD_BRUCKE_SHIFT) {
-        const float input_brightness = srgb_to_hk_adjusted_brightness(shader_input.stimulus);
-
         const float k = BEZOLD_BRUCKE_SHIFT_K;
         const float p = BEZOLD_BRUCKE_SHIFT_P;
         const float t = srgb_to_luminance(shader_input.stimulus) / k;
@@ -177,8 +175,6 @@ float3 compress_stimulus(ShaderInput shader_input) {
         #else
             float3 stimulus = XYZtoRGB(BB_shift_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
         #endif
-
-        stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
         
         shader_input.stimulus = stimulus;
     }
