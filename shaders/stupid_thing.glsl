@@ -9,6 +9,13 @@
 #include "inc/ipt.hlsl"
 #include "inc/bezold_brucke.hlsl"
 
+#define BEZOLD_BRUCKE_BRUTE_FORCE 1
+
+#if BEZOLD_BRUCKE_BRUTE_FORCE
+#include "inc/cie1931.glsl"
+#include "inc/bezold_brucke_brute_force.glsl"
+#endif
+
 // The space to perform chroma attenuation in. More details in the `compress_stimulus` function.
 // Oklab works well, but fails at pure blues.
 // ICtCp seems to work pretty well all around.
@@ -72,7 +79,7 @@
     #define SHIFTBIAS 1.03
 #endif
 
-#define BEZOLD_BRUCKE_SHIFT_K 8
+#define BEZOLD_BRUCKE_SHIFT_K 12
 #define BEZOLD_BRUCKE_SHIFT_P 1.0
 
 // Based on the selection, define `linear_to_perceptual` and `perceptual_to_linear`
@@ -104,7 +111,7 @@ float compress_brightness(float v) {
         // based on stuff from Daniele Siragusano: https://community.acescentral.com/t/output-transform-tone-scale/3498/14
         // Reinhard with flare compensation.
         const float sx = 1.0;
-        const float p = 1.15;
+        const float p = 1.2;
         const float sy = 1.0205;
 		return saturate(sy * pow(v / (v + sx), p));
     #endif
@@ -165,7 +172,11 @@ float3 compress_stimulus(ShaderInput shader_input) {
         float shift_amount = t * pow(pow(t, p) + 1.0, -1.0 / p);
         //return shift_amount.xxx;
 
-        float3 stimulus = XYZtoRGB(BB_shift_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
+        #if BEZOLD_BRUCKE_BRUTE_FORCE
+            float3 stimulus = XYZtoRGB(BB_shift_brute_force_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
+        #else
+            float3 stimulus = XYZtoRGB(BB_shift_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
+        #endif
 
         stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
         

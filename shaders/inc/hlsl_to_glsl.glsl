@@ -8,3 +8,4 @@
 #define saturate(a) clamp(a, 0.0, 1.0)
 
 #define float3x3(a, b, c, d, e, f, g, h, i) transpose(mat3(a, b, c, d, e, f, g, h, i))
+#define float2x2(a, b, c, d) transpose(mat2(a, b, c, d))

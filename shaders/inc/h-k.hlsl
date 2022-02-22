@@ -1,3 +1,5 @@
+#include "catmull_rom.hlsl"
+
 // Helmholtz-Kohlrausch
 // From https://github.com/ilia3101/HKE
 // Based on Nayatani, Y. (1997). Simple estimation methods for the Helmholtz-Kohlrausch effect
@@ -24,14 +26,6 @@ float nayatani_hk_lightness_adjustment_multiplier(float2 uv, float adapt_lum) {
     float suv = 13.0 * length(uv);
 
     return 1.0 + (-0.1340 * q + 0.0872 * kbr) * suv;
-}
-
-float catmull_rom(float x, float v0,float v1, float v2,float v3) 
-{
-	float c2 = -.5 * v0	+ 0.5*v2;
-	float c3 = v0		+ -2.5*v1 + 2.0*v2 + -.5*v3;
-	float c4 = -.5 * v0	+ 1.5*v1 + -1.5*v2 + 0.5*v3;
-	return(((c4 * x + c3) * x + c2) * x + v1);
 }
 
 // `uv`: CIE LUV u' and v'
