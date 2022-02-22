@@ -79,7 +79,7 @@
     #define SHIFTBIAS 1.03
 #endif
 
-#define BEZOLD_BRUCKE_SHIFT_K 12
+#define BEZOLD_BRUCKE_SHIFT_K 14
 #define BEZOLD_BRUCKE_SHIFT_P 1.0
 
 // Based on the selection, define `linear_to_perceptual` and `perceptual_to_linear`
@@ -246,18 +246,18 @@ float3 compress_stimulus(ShaderInput shader_input) {
 
 #if ASINSHIFT
     float chroma_attenuation = asin(pow(chroma_attenuation_t, 3.0)) / M_PI * 2;
+    
+    if (WINDOW_ASINSHIFT) {
+        const float compressed_achromatic_luminance2 = compress_brightness(0.125 * input_brightness / max_output_scale) * max_output_scale;
+        const float chroma_attenuation_t2 = saturate(
+            (compressed_achromatic_luminance2 - min(1, max_intensity_brightness) * 0.5)
+            / ((max_output_scale - min(1, max_intensity_brightness) * 0.5))
+        );
 
-    const float chroma_attenuation_t2 = saturate(
-        (compressed_achromatic_luminance - min(1, max_intensity_brightness) * 0.9)
-        / ((lerp(SHIFTBIAS, 1.0, 0.9) * max_output_scale - min(1, max_intensity_brightness) * 0.9))
-    );
-
-    #if WINDOW_ASINSHIFT
-    chroma_attenuation = lerp(chroma_attenuation, 1.0,
-        //pow(chroma_attenuation_t2, 16)
-        1.0 - sqrt(saturate(1.0 - pow(chroma_attenuation_t2, 8)))
-    );
-    #endif
+        chroma_attenuation = lerp(chroma_attenuation, 1.0,
+            1.0 - saturate(1.0 - pow(chroma_attenuation_t2, 4))
+        );
+    }
 #else
     const float chroma_attenuation = pow(chroma_attenuation_t, chroma_attenuation_exponent);
 #endif
