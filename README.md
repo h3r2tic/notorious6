@@ -10,7 +10,7 @@
 
 Experiments in mapping HDR stimulus to display via shaders and stuff.
   
-![screenshot](https://user-images.githubusercontent.com/16522064/154876123-bc08ee79-0134-4e6d-b205-bca9a2f60d7b.jpg)
+![screenshot](https://user-images.githubusercontent.com/16522064/155045403-e708a940-46e8-4789-84a8-352a406c03e4.jpg)
 
 </div>
 
