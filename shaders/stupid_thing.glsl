@@ -61,26 +61,12 @@
 
 // ----------------------------------------------------------------
 
-#if 0
-    #define USE_BEZOLD_BRUCKE_SHIFT 0
-    #define HERPDERP 1
-    #define HERPDERP_K 24.0
-    #define ASINSHIFT 1
-    #define WINDOW_ASINSHIFT 0
-    #define SHIFTBIAS 1.03
-#else
-    #define USE_BEZOLD_BRUCKE_SHIFT 1
-    
-    #define HERPDERP 0
-    #define HERPDERP_K 64.0
-
-    #define ASINSHIFT 1
-    #define WINDOW_ASINSHIFT 1
-    #define SHIFTBIAS 1.03
-#endif
-
+#define USE_BEZOLD_BRUCKE_SHIFT 0
 #define BEZOLD_BRUCKE_SHIFT_K 14
 #define BEZOLD_BRUCKE_SHIFT_P 1.0
+#define ASINSHIFT 1
+#define WINDOW_ASINSHIFT 1
+#define SHIFTBIAS 1.03
 
 // Based on the selection, define `linear_to_perceptual` and `perceptual_to_linear`
 #if PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_OKLAB
@@ -145,24 +131,6 @@ float srgb_to_hk_adjusted_brightness(float3 shader_input) {
 }
 
 float3 compress_stimulus(ShaderInput shader_input) {
-    // herp derp saturation of cones
-    if (HERPDERP) {
-        float3 stimulus = shader_input.stimulus;
-        const float input_brightness = srgb_to_hk_adjusted_brightness(stimulus);
-
-        const float k = HERPDERP_K;
-        const float p = 1.0;
-        stimulus = Primaries_BT2020_to_LMS(Primaries_BT709_to_BT2020(stimulus));
-        stimulus /= k;
-        stimulus = max(stimulus, 0.0.xxx);
-        stimulus = stimulus * pow(pow(stimulus, p.xxx) + 1.0, -1.0 / p.xxx);
-        stimulus *= k;
-        stimulus = Primaries_BT2020_to_BT709(Primaries_LMS_to_BT2020(stimulus));
-        
-        stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
-        shader_input.stimulus = stimulus;
-    }
-
     if (USE_BEZOLD_BRUCKE_SHIFT) {
         const float k = BEZOLD_BRUCKE_SHIFT_K;
         const float p = BEZOLD_BRUCKE_SHIFT_P;
