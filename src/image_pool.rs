@@ -72,7 +72,7 @@ impl ImagePool {
 
         match (&img.image, &mut img.texture) {
             (PooledImageLoadStatus::Loaded(loaded), target_image @ None) => {
-                *target_image = Some(Texture::new(gl, loaded));
+                *target_image = Some(Texture::new_2d(gl, loaded));
                 target_image.as_ref()
             }
             (PooledImageLoadStatus::Loaded(_), Some(texture)) => Some(texture),

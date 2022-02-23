@@ -51,3 +51,14 @@ float3 BB_shift_XYZ(float3 XYZ, float amount) {
     white_offset_ipt.yz = mul(float2x2(ca, sa, -sa, ca), white_offset_ipt.yz);
     return ipt_to_xyz(white_ipt + white_offset_ipt);
 }
+
+uniform sampler1D bezold_brucke_lut;
+float3 BB_shift_lut_XYZ(float3 XYZ, float amount) {
+    const float2 white = float2(.3127, 0.3290);   // D65
+
+    const float3 xyY = CIE_XYZ_to_xyY(XYZ);
+    const float2 offset = xyY.xy - white;
+    const float theta = fract((atan2(offset.y, offset.x) / M_PI) * 0.5);
+    const float2 shifted_xy = lerp(xyY.xy, textureLod(bezold_brucke_lut, theta, 0).xy * length(offset) + white, amount);
+    return CIE_xyY_to_XYZ(float3(shifted_xy, xyY.z));
+}

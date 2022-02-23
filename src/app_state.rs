@@ -1,14 +1,16 @@
 use crate::{
     fbo::Fbo,
     image_pool::*,
-    shader::{AnyShadersChanged, ShaderKey, ShaderLib},
+    lut_lib::{AnyLutsChanged, LutDesc, LutLib},
+    shader::ShaderKey,
+    shader_lib::{AnyShadersChanged, ShaderLib},
     texture::Texture,
 };
 use anyhow::Context;
 use glutin::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 use jpeg_encoder::{ColorType, Encoder};
 use std::{
-    ffi::c_void,
+    ffi::{c_void, CString},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -31,6 +33,7 @@ pub struct AppState {
     image_pool: ImagePool,
     current_image: usize,
     shader_lib: ShaderLib,
+    lut_lib: LutLib,
     current_shader: usize,
     _lazy_cache: Arc<LazyCache>,
     shaders: Vec<ShaderKey>,
@@ -83,10 +86,22 @@ impl AppState {
             })
             .collect();
 
+        let mut lut_lib = LutLib::new(&lazy_cache);
+        lut_lib.add_lut(
+            LutDesc {
+                width: 256,
+                internal_format: gl::RG32F,
+                name: "bezold_brucke_lut".into(),
+                shader_path: "shaders/lut/bezold_brucke_lut.glsl".into(),
+            },
+            gl,
+        );
+
         Ok(Self {
             image_pool,
             current_image: 0,
             shader_lib,
+            lut_lib,
             current_shader: 0,
             _lazy_cache: lazy_cache,
             shaders,
@@ -96,8 +111,17 @@ impl AppState {
         })
     }
 
-    pub fn compile_shaders(&mut self, gl: &gl::Gl) -> AnyShadersChanged {
-        self.shader_lib.compile_all(gl)
+    pub fn update(&mut self, gl: &gl::Gl) -> NeedsRedraw {
+        let luts_changed = self.lut_lib.compile_all(gl);
+        let shaders_changed = self.shader_lib.compile_all(gl);
+
+        if matches!(luts_changed, AnyLutsChanged::Yes)
+            || matches!(shaders_changed, AnyShadersChanged::Yes)
+        {
+            NeedsRedraw::Yes
+        } else {
+            NeedsRedraw::No
+        }
     }
 
     pub fn process_batched_requests(&mut self, gl: &gl::Gl) -> anyhow::Result<()> {
@@ -115,7 +139,7 @@ impl AppState {
                 .get_shader_gl_handle(&self.shaders[pending.shader_index])
                 .expect("get_shader_gl_handle");
 
-            draw_texture(gl, texture, shader, texture.size, pending.ev);
+            draw_texture(gl, texture, shader, texture.size, pending.ev, &self.lut_lib);
             Self::capture_screenshot(gl, texture, &pending.file_path)?;
             log::info!("Saved {:?}", pending.file_path);
 
@@ -137,7 +161,7 @@ impl AppState {
                 let fbo = Fbo::new(gl, texture.size);
                 fbo.bind(gl);
 
-                draw_texture(gl, texture, shader, texture.size, self.ev);
+                draw_texture(gl, texture, shader, texture.size, self.ev, &self.lut_lib);
 
                 let width_frac: f64 = texture.size[0] as f64 / physical_window_size[0] as f64;
                 let height_frac: f64 = texture.size[1] as f64 / physical_window_size[1] as f64;
@@ -354,23 +378,61 @@ impl AppState {
     }
 }
 
-fn draw_texture(gl: &gl::Gl, texture: &Texture, shader_program: u32, size: [usize; 2], ev: f64) {
+fn draw_texture(
+    gl: &gl::Gl,
+    texture: &Texture,
+    shader_program: u32,
+    size: [usize; 2],
+    ev: f64,
+    lut_lib: &LutLib,
+) {
     unsafe {
         gl.Viewport(0, 0, size[0] as _, size[1] as _);
 
         gl.UseProgram(shader_program);
 
-        gl.ActiveTexture(gl::TEXTURE0);
-        gl.BindTexture(gl::TEXTURE_2D, texture.id);
+        let mut tex_unit = 0;
 
         {
+            gl.ActiveTexture(gl::TEXTURE0);
+            gl.BindTexture(gl::TEXTURE_2D, texture.id);
             let loc =
                 gl.GetUniformLocation(shader_program, "input_texture\0".as_ptr() as *const i8);
             if loc != -1 {
-                let img_unit = 0;
-                gl.Uniform1i(loc, img_unit);
+                gl.Uniform1i(loc, tex_unit);
+                tex_unit += 1;
             }
         }
+
+        for (lut_desc, lut_texture) in lut_lib.iter() {
+            let uniform_name = CString::new(lut_desc.name.clone()).unwrap();
+            let loc = gl.GetUniformLocation(shader_program, uniform_name.as_ptr() as *const i8);
+            if loc != -1 {
+                // log::info!("Binding lut {:?}", lut_desc.name);
+                gl.ActiveTexture(gl::TEXTURE0 + tex_unit as gl::types::GLenum);
+                gl.BindTexture(lut_texture.ty, lut_texture.id);
+                gl.Uniform1i(loc, tex_unit);
+                tex_unit += 1;
+            }
+        }
+
+        /*for (lut_desc, lut_texture) in lut_lib.iter() {
+            let uniform_name = CString::new(lut_desc.name.clone()).unwrap();
+            let loc = gl.GetUniformLocation(shader_program, uniform_name.as_ptr() as *const i8);
+            if loc != -1 {
+                gl.Uniform1i(loc, img_unit);
+                gl.BindImageTexture(
+                    img_unit as _,
+                    lut_texture.id,
+                    0,
+                    gl::FALSE,
+                    0,
+                    gl::READ_ONLY,
+                    lut_texture.internal_format,
+                );
+                img_unit += 1;
+            }
+        }*/
 
         {
             let loc = gl.GetUniformLocation(shader_program, "input_ev\0".as_ptr() as *const i8);

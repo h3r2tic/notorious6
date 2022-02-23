@@ -3,8 +3,10 @@ mod fbo;
 mod file;
 mod image_loading;
 mod image_pool;
+mod lut_lib;
 mod setup;
 mod shader;
+mod shader_lib;
 mod texture;
 
 use std::path::PathBuf;
@@ -15,7 +17,6 @@ use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::{ControlFlow, EventLoop};
 use glutin::window::WindowBuilder;
 use glutin::ContextBuilder;
-use shader::AnyShadersChanged;
 
 use structopt::StructOpt;
 
@@ -114,7 +115,7 @@ fn main() -> anyhow::Result<()> {
                 }
             },
             Event::MainEventsCleared => {
-                if matches!(state.compile_shaders(&gl), AnyShadersChanged::Yes) {
+                if matches!(state.update(&gl), NeedsRedraw::Yes) {
                     windowed_context.window().request_redraw();
                 }
 

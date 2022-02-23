@@ -7,6 +7,8 @@
 #define IMAGE_PASSTHROUGH 0
 
 vec3 compress_stimulus(ShaderInput shader_input) {
+    //return textureLod(bezold_brucke_lut, shader_input.uv.x, 0).xyz;
+
     //float wavelength = lerp(standardObserver1931_w_min, standardObserver1931_w_max, shader_input.uv.x);
     float wavelength = lerp(410, 650, shader_input.uv.x);    
 
@@ -34,7 +36,8 @@ vec3 compress_stimulus(ShaderInput shader_input) {
     }
 
     {
-        vec3 shifted_XYZ = BB_shift_XYZ(XYZ, 1.0);
+        //vec3 shifted_XYZ = BB_shift_XYZ(XYZ, 1.0);
+        vec3 shifted_XYZ = BB_shift_lut_XYZ(XYZ, 1.0);
         //vec3 shifted_XYZ = BB_shift_brute_force_XYZ(XYZ, 1.0);
                 
         vec3 shifted_sRGB = shifted_XYZ * XYZtoRGB(Primaries_Rec709);
@@ -43,7 +46,7 @@ vec3 compress_stimulus(ShaderInput shader_input) {
         float wavelength_shift = shifted_wavelength - wavelength;
 
         if (abs(ordinate - wavelength_shift) < 0.08) {
-            return 1.0.xxx;
+            return float3(1, 1, 0);
         }
 
         #if !IMAGE_PASSTHROUGH

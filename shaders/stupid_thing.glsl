@@ -9,7 +9,7 @@
 #include "inc/ipt.hlsl"
 #include "inc/bezold_brucke.hlsl"
 
-#define BEZOLD_BRUCKE_BRUTE_FORCE 1
+#define BEZOLD_BRUCKE_BRUTE_FORCE 0
 
 #if BEZOLD_BRUCKE_BRUTE_FORCE
 #include "inc/cie1931.glsl"
@@ -61,8 +61,8 @@
 
 // ----------------------------------------------------------------
 
-#define USE_BEZOLD_BRUCKE_SHIFT 0
-#define BEZOLD_BRUCKE_SHIFT_K 14
+#define USE_BEZOLD_BRUCKE_SHIFT 1
+#define BEZOLD_BRUCKE_SHIFT_K 6
 #define BEZOLD_BRUCKE_SHIFT_P 1.0
 #define ASINSHIFT 1
 #define WINDOW_ASINSHIFT 1
@@ -141,7 +141,7 @@ float3 compress_stimulus(ShaderInput shader_input) {
         #if BEZOLD_BRUCKE_BRUTE_FORCE
             float3 stimulus = XYZtoRGB(BB_shift_brute_force_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
         #else
-            float3 stimulus = XYZtoRGB(BB_shift_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
+            float3 stimulus = XYZtoRGB(BB_shift_lut_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
         #endif
         
         shader_input.stimulus = stimulus;

@@ -74,38 +74,42 @@ vec2 intersect_gamut(vec2 xy) {
 
 float XYZ_to_BB_shift_nm(vec3 XYZ) {
     const vec2 white = whiteD65;
-    vec3 ipt = xyz_to_ipt(XYZ);
-    vec3 white_offset_ipt = ipt - xyz_to_ipt(CIE_xyY_to_XYZ(vec3(white, 1.0)));
-    float theta = atan2(white_offset_ipt[2], white_offset_ipt[1]);
+
+    const vec2 xy = CIE_XYZ_to_xyY(XYZ).xy;
+    vec2 white_offset = xy - whiteD65;
+    float theta = atan2(white_offset.y, white_offset.x);
 
     // Piece-wise linear match to Pridmore's plot for 10:100 cd/m^2
-    const uint SAMPLE_COUNT = 24;
+    const uint SAMPLE_COUNT = 26;
     vec2 samples[] = {
-        vec2(0.0, 0),
-        vec2(0.05, -5.0),
-        vec2(0.09, -5.0),
-        vec2(0.122, -4.0),
-        vec2(0.158, 0.0),
-        vec2(0.175, 2.3),
-        vec2(0.207, 5),
-        vec2(0.23, 6),
-        vec2(0.25, 6.5),
-        vec2(0.3, 4.4),
-        vec2(0.332, 3.93),
-        vec2(0.42, -4.9),
-        vec2(0.463, -6),
-        vec2(0.4915, -6),
-        vec2(0.5125, 1.42),
-        vec2(0.517, 1.9),
-        vec2(0.53, 2.55),
+        vec2(0.01, 0),
+        vec2(0.094, -5.0),
+        vec2(0.162, -5.0),
+        vec2(0.2155, -4.0),
+        vec2(0.26, 0.0),
+        vec2(0.275, 2.3),
+        vec2(0.301, 5),
+        vec2(0.32, 6),
+        vec2(0.3385, 6.5),
+        vec2(0.366, 5.4),
+        vec2(0.405, 4.4),
+        vec2(0.4545, 3.93),
+        vec2(0.561, -4.9),
+        vec2(0.595, -6),
+        vec2(0.6165, -6),
+        vec2(0.6233, -3),
+        vec2(0.631, 1.42),
+        vec2(0.6345, 1.9),
+        vec2(0.643, 2.55),
+
         // non-spectrals
-        vec2(0.867, 2.55),
-        vec2(0.87, 3.35),
-        vec2(0.88, 4.8),
-        vec2(0.895, 6.15),
-        vec2(0.912, 7),
-        vec2(0.935, 5.95),
-        vec2(0.957, 4.0),
+        vec2(0.93495, 2.55),
+        vec2(0.93525, 3.35),
+        vec2(0.9367, 4.8),        
+        vec2(0.94, 6.15),
+        vec2(0.944, 7),
+        vec2(0.952, 5.95),
+        vec2(0.966, 4.0),
     };
 
     const float t = fract((-theta / M_PI) * 0.5 + 0.62);
