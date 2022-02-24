@@ -62,11 +62,9 @@
 // ----------------------------------------------------------------
 
 #define USE_BEZOLD_BRUCKE_SHIFT 1
-#define BEZOLD_BRUCKE_SHIFT_K 6
-#define BEZOLD_BRUCKE_SHIFT_P 1.0
-#define ASINSHIFT 1
-#define WINDOW_ASINSHIFT 1
-#define SHIFTBIAS 1.03
+#define BEZOLD_BRUCKE_SHIFT_RAMP 6
+#define USE_LONG_TAILED_CHROMA_ATTENUATION 1
+#define CHROMA_ATTENUATION_BIAS 1.03
 
 // Based on the selection, define `linear_to_perceptual` and `perceptual_to_linear`
 #if PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_OKLAB
@@ -132,11 +130,8 @@ float srgb_to_hk_adjusted_brightness(float3 shader_input) {
 
 float3 compress_stimulus(ShaderInput shader_input) {
     if (USE_BEZOLD_BRUCKE_SHIFT) {
-        const float k = BEZOLD_BRUCKE_SHIFT_K;
-        const float p = BEZOLD_BRUCKE_SHIFT_P;
-        const float t = srgb_to_luminance(shader_input.stimulus) / k;
-        float shift_amount = t * pow(pow(t, p) + 1.0, -1.0 / p);
-        //return shift_amount.xxx;
+        const float t = srgb_to_luminance(shader_input.stimulus) / BEZOLD_BRUCKE_SHIFT_RAMP;
+        const float shift_amount = t / (t + 1.0);
 
         #if BEZOLD_BRUCKE_BRUTE_FORCE
             float3 stimulus = XYZtoRGB(BB_shift_brute_force_XYZ(RGBToXYZ(shader_input.stimulus), shift_amount));
@@ -205,13 +200,14 @@ float3 compress_stimulus(ShaderInput shader_input) {
     const float chroma_attenuation_exponent = lerp(CHROMA_ATTENUATION_EXPONENT_MAX, CHROMA_ATTENUATION_EXPONENT_MIN, chroma_strength);
     const float chroma_attenuation_t = saturate(
         (compressed_achromatic_luminance - min(1, max_intensity_brightness) * chroma_attenuation_start)
-        / ((SHIFTBIAS * max_output_scale - min(1, max_intensity_brightness) * chroma_attenuation_start))
+        / ((CHROMA_ATTENUATION_BIAS * max_output_scale - min(1, max_intensity_brightness) * chroma_attenuation_start))
     );
 
-#if ASINSHIFT
+#if USE_LONG_TAILED_CHROMA_ATTENUATION
     float chroma_attenuation = asin(pow(chroma_attenuation_t, 3.0)) / M_PI * 2;
     
-    if (WINDOW_ASINSHIFT) {
+    // Window this with a soft falloff
+    {
         const float compressed_achromatic_luminance2 = compress_brightness(0.125 * input_brightness / max_output_scale) * max_output_scale;
         const float chroma_attenuation_t2 = saturate(
             (compressed_achromatic_luminance2 - min(1, max_intensity_brightness) * 0.5)
