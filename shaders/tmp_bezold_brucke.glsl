@@ -46,22 +46,24 @@ vec3 compress_stimulus(ShaderInput shader_input) {
         float wavelength_shift = shifted_wavelength - wavelength;
 
         if (abs(ordinate - wavelength_shift) < 0.08) {
-            return float3(1, 1, 0);
+            return float3(1, 0, 1);
         }
 
         #if !IMAGE_PASSTHROUGH
+            // Bottom part: approximate ajustment
             if (shader_input.uv.y > 0.7) {
                 return shifted_sRGB * 0.3;
             }
         #endif
     }
 
+    // Middle part: brute force adjustment
     if (shader_input.uv.y > 0.3) {
-        float3 xyY = wavelength_to_xyY(wavelength + bb_shift);
-        XYZ = CIE_xyY_to_XYZ(xyY);
-    } else {
-        //XYZ *= 2.0;
+        //float3 xyY = wavelength_to_xyY(wavelength + bb_shift);
+        //XYZ = CIE_xyY_to_XYZ(xyY);
+        XYZ = BB_shift_brute_force_XYZ(XYZ, 1.0);
     }
+    // else: top part: input
 
     vec3 sRGB = XYZ * XYZtoRGB(Primaries_Rec709);
 

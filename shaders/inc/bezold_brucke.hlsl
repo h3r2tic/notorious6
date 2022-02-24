@@ -52,13 +52,67 @@ float3 BB_shift_XYZ(float3 XYZ, float amount) {
     return ipt_to_xyz(white_ipt + white_offset_ipt);
 }
 
+// Assigns uniform angles to hue in CIE 1931, however that doesn't mean much.
+#define BB_LUT_LUT_MAPPING_ANGULAR 0
+
+// Probably the best bang/buck.
+#define BB_LUT_LUT_MAPPING_QUAD 1
+
+// Not really an improvement.
+#define BB_LUT_LUT_MAPPING_ROTATED_QUAD 2
+#define BB_LUT_LUT_MAPPING_ROTATED_QUAD_ANGLE 0.8595
+
+// Select the encoding method
+#define BB_LUT_LUT_MAPPING BB_LUT_LUT_MAPPING_QUAD
+
+
+float bb_xy_white_offset_to_lut_coord(float2 offset) {
+    #if BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_ANGULAR
+        return fract((atan2(offset.y, offset.x) / M_PI) * 0.5);
+    #elif BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_QUAD
+        offset /= max(abs(offset.x), abs(offset.y));
+        float sgn = (offset.x + offset.y) > 0.0 ? 1.0 : -1.0;
+        // NOTE: needs a `frac` if the sampler's U wrap mode is not REPEAT.
+        return sgn * (0.125 * (offset.x - offset.y) + 0.25);
+    #elif BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_ROTATED_QUAD
+        const float angle = BB_LUT_LUT_MAPPING_ROTATED_QUAD_ANGLE;
+        offset = mul(float2x2(cos(angle), sin(angle), -sin(angle), cos(angle)), offset);
+        offset /= max(abs(offset.x), abs(offset.y));
+        float sgn = (offset.x + offset.y) > 0.0 ? 1.0 : -1.0;
+        // NOTE: needs a `frac` if the sampler's U wrap mode is not REPEAT.
+        return sgn * (0.125 * (offset.x - offset.y) + 0.25);
+    #endif
+}
+
+float2 bb_lut_coord_to_xy_white_offset(float coord) {
+    #if BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_ANGULAR
+        const float theta = coord * M_PI * 2.0;
+        return float2(cos(theta), sin(theta));
+    #elif BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_QUAD
+        float side = (coord < 0.5 ? 1.0 : -1.0);
+        float t = frac(coord * 2);
+        return side * normalize(
+            lerp(float2(-1, 1), float2(1, -1), t)
+            + lerp(float2(0, 0), float2(1, 1), 1 - abs(t - 0.5) * 2)
+        );
+    #elif BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_ROTATED_QUAD
+        float side = (coord < 0.5 ? 1.0 : -1.0);
+        float t = frac(coord * 2);
+        float2 offset = side * normalize(lerp(float2(-1, 1), float2(1, -1), t) + lerp(float2(0, 0), float2(1, 1), 1 - abs(t - 0.5) * 2));
+        const float angle = BB_LUT_LUT_MAPPING_ROTATED_QUAD_ANGLE;
+        return mul(offset, float2x2(cos(angle), sin(angle), -sin(angle), cos(angle)));
+    #endif
+}
+
 uniform sampler1D bezold_brucke_lut;
 float3 BB_shift_lut_XYZ(float3 XYZ, float amount) {
     const float2 white = float2(.3127, 0.3290);   // D65
 
     const float3 xyY = CIE_XYZ_to_xyY(XYZ);
     const float2 offset = xyY.xy - white;
-    const float theta = fract((atan2(offset.y, offset.x) / M_PI) * 0.5);
-    const float2 shifted_xy = lerp(xyY.xy, textureLod(bezold_brucke_lut, theta, 0).xy * length(offset) + white, amount);
+
+    const float lut_coord = bb_xy_white_offset_to_lut_coord(offset);
+
+    const float2 shifted_xy = xyY.xy + textureLod(bezold_brucke_lut, lut_coord, 0).xy * length(offset) * amount;
     return CIE_xyY_to_XYZ(float3(shifted_xy, xyY.z));
 }

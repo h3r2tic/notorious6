@@ -13,13 +13,11 @@ layout(rg32f) uniform image1D output_image;
 void main() {
     const int px = int(gl_GlobalInvocationID.x);
 
-    const float theta = ((px + 0.5) / 256) * M_PI * 2.0;
-
-    const float2 xy = float2(cos(theta), sin(theta)) + whiteD65;
+    const float2 xy = bb_lut_coord_to_xy_white_offset((px + 0.5) / 64) + whiteD65;
     float3 XYZ = CIE_xyY_to_XYZ(float3(xy, 1.0));
 
     const float3 shifted_XYZ = BB_shift_brute_force_XYZ(XYZ, 1.0);
-    const float2 shifted_xy = normalize(CIE_XYZ_to_xyY(shifted_XYZ).xy - whiteD65);
+    const float2 shifted_xy = normalize(CIE_XYZ_to_xyY(shifted_XYZ).xy - whiteD65) + whiteD65;
 
-    imageStore(output_image, px, vec4(shifted_xy, 0.0, 0.0));
+    imageStore(output_image, px, vec4(shifted_xy - xy, 0.0, 0.0));
 }

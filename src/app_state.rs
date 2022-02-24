@@ -89,7 +89,7 @@ impl AppState {
         let mut lut_lib = LutLib::new(&lazy_cache);
         lut_lib.add_lut(
             LutDesc {
-                width: 256,
+                width: 64,
                 internal_format: gl::RG32F,
                 name: "bezold_brucke_lut".into(),
                 shader_path: "shaders/lut/bezold_brucke_lut.glsl".into(),
