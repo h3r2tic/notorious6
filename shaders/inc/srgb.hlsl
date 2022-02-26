@@ -1,7 +1,7 @@
 #ifndef SRGB_HLSL
 #define SRGB_HLSL
 
-float srgb_to_luminance(float3 col) {
+float sRGB_to_luminance(float3 col) {
     return dot(col, float3(0.2126, 0.7152, 0.0722));
 }
 

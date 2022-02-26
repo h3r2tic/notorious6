@@ -118,7 +118,7 @@ HelmholtzKohlrauschEffect hk_from_sRGB(float3 stimulus) {
 
 float srgb_to_equivalent_luminance(HelmholtzKohlrauschEffect hk, float3 stimulus) {
     #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
-        const float luminance = srgb_to_luminance(stimulus);
+        const float luminance = sRGB_to_luminance(stimulus);
         const float2 uv = CIE_XYZ_to_LUV_uv(sRGB_to_XYZ(stimulus));
         const float luv_brightness = luminance_to_LUV_L(luminance);
         const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
@@ -126,7 +126,7 @@ float srgb_to_equivalent_luminance(HelmholtzKohlrauschEffect hk, float3 stimulus
     #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
         return hk.mult * sRGB_to_XYZ(stimulus).y;
     #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
-        return srgb_to_luminance(stimulus);
+        return sRGB_to_luminance(stimulus);
     #endif
 }
 

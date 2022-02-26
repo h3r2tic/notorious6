@@ -12,15 +12,15 @@ float hk_equivalent_luminance(float3 sRGB) {
 }
 
 vec3 compress_stimulus(ShaderInput shader_input) {
-    shader_input.uv.x = fract(-shader_input.uv.x - 0.14);
+    shader_input.uv.x = frac(-shader_input.uv.x - 0.14);
     const float2 quant = float2(42, 24);
     
     const float2 uv = floor(shader_input.uv * quant) / quant;
     //const float2 uv = shader_input.uv;
 
     float h = uv.x;
-    if (fract(uv.x * 20.0 + 0.3) > 0.85) {
-        //h = fract(h + 0.5);
+    if (frac(uv.x * 20.0 + 0.3) > 0.85) {
+        //h = frac(h + 0.5);
     }
     vec3 res = hsv2rgb(float3(h, 0.999, 1.0));
     //return res * smoothstep(1.0, 0.0, uv.y);
@@ -30,7 +30,7 @@ vec3 compress_stimulus(ShaderInput shader_input) {
     res.z = sRGB_OETF(res.z);
 
     const float desaturation = 0.0;
-    res = lerp(res, srgb_to_luminance(res).xxx, desaturation);
+    res = lerp(res, sRGB_to_luminance(res).xxx, desaturation);
 
     //return res;
     //res *= 1.0 - uv.y;
@@ -40,7 +40,7 @@ vec3 compress_stimulus(ShaderInput shader_input) {
     //res = lerp(res, res.yyy, 0.5);
 
 #if 0
-    if (fract(shader_input.uv.x * 20.0 + 0.3) < 0.7) {
+    if (frac(shader_input.uv.x * 20.0 + 0.3) < 0.7) {
         res = 1.0.xxx;
     }
 #endif
@@ -62,13 +62,13 @@ vec3 compress_stimulus(ShaderInput shader_input) {
         hsv_output.y = sRGB_OETF(hsv_output.y);
         hsv_output.z = sRGB_OETF(hsv_output.z);
         
-        hsv_output = lerp(hsv_output, srgb_to_luminance(hsv_output).xxx, desaturation);
+        hsv_output = lerp(hsv_output, sRGB_to_luminance(hsv_output).xxx, desaturation);
 
         hsv_output /= hk_equivalent_luminance(hsv_output);
         hsv_output /= hk_equivalent_luminance(hsv_output);
 
-        //float equiv = srgb_to_luminance(hsv_output);
-        float equiv = log(1.0 / srgb_to_luminance(hsv_output)) + 0.1;
+        //float equiv = sRGB_to_luminance(hsv_output);
+        float equiv = log(1.0 / sRGB_to_luminance(hsv_output)) + 0.1;
 
         /*float above = (1 - shader_input.uv.y) * 2 > equiv ? 1.0 : 0.0;
         if (dFdy(above) != 0.0 || dFdx(above) != 0.0) {

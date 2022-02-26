@@ -17,7 +17,7 @@
 
 float bb_xy_white_offset_to_lut_coord(float2 offset) {
     #if BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_ANGULAR
-        return fract((atan2(offset.y, offset.x) / M_PI) * 0.5);
+        return frac((atan2(offset.y, offset.x) / M_PI) * 0.5);
     #elif BB_LUT_LUT_MAPPING == BB_LUT_LUT_MAPPING_QUAD
         offset /= max(abs(offset.x), abs(offset.y));
         float sgn = (offset.x + offset.y) > 0.0 ? 1.0 : -1.0;
@@ -92,12 +92,12 @@ float XYZ_to_BB_shift_nm(float3 XYZ) {
         float2(0.956, 4.0),
     };
 
-    const float t = fract((-theta / M_PI) * 0.5 + 0.61);
+    const float t = frac((-theta / M_PI) * 0.5 + 0.61);
 
     for (int i = 0; i < SAMPLE_COUNT; ++i) {
         float2 p0 = samples[i];
         float2 p1 = samples[(i + 1) % SAMPLE_COUNT];
-        float interp = (t - p0.x) / fract(p1.x - p0.x + 1);
+        float interp = (t - p0.x) / frac(p1.x - p0.x + 1);
         if (t >= p0.x && interp <= 1.0) {
             return lerp(p0.y, p1.y, interp);
         }
