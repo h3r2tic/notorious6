@@ -109,21 +109,34 @@ float srgb_to_luminance(float3 col) {
     return rgb_to_ycbcr(col).x;
 }
 
-// Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
-float hk_equivalent_luminance(float3 shader_input) {
-#if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
-    const float luminance = srgb_to_luminance(shader_input);
-    const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(shader_input));
-    const float luv_brightness = hsluv_yToL(luminance);
-    const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
-    return hsluv_lToY(luv_brightness * mult);
-#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
-    const float3 XYZ = RGBToXYZ(shader_input);
-    const float mult = XYZ_to_hk_luminance_multiplier_custom_g0(XYZ);
-    return XYZ.y * mult;
-#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
-    return srgb_to_luminance(shader_input);
+struct HelmholtzKohlrauschEffect {
+#if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+    float mult;
+#else
+    float omg_glsl_y_u_no_empty_struct;
 #endif
+};
+
+HelmholtzKohlrauschEffect hk_from_sRGB(float3 stimulus) {
+    HelmholtzKohlrauschEffect res;
+    #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+        res.mult = XYZ_to_hk_luminance_multiplier_custom_g0(RGBToXYZ(stimulus));
+    #endif
+    return res;
+}
+
+float srgb_to_equivalent_luminance(HelmholtzKohlrauschEffect hk, float3 stimulus) {
+    #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
+        const float luminance = srgb_to_luminance(stimulus);
+        const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(stimulus));
+        const float luv_brightness = hsluv_yToL(luminance);
+        const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
+        return hsluv_lToY(luv_brightness * mult);
+    #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+        return hk.mult * RGBToXYZ(stimulus).y;
+    #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
+        return srgb_to_luminance(stimulus);
+    #endif
 }
 
 float3 compress_stimulus(ShaderInput shader_input) {
@@ -140,13 +153,15 @@ float3 compress_stimulus(ShaderInput shader_input) {
         shader_input.stimulus = stimulus;
     }
 
+    const HelmholtzKohlrauschEffect hk = hk_from_sRGB(shader_input.stimulus);
+
     // Find the shader_input luminance adjusted by the Helmholtz-Kohlrausch effect.
-    const float input_equiv_lum = hk_equivalent_luminance(shader_input.stimulus);
+    const float input_equiv_lum = srgb_to_equivalent_luminance(hk, shader_input.stimulus);
 
     // The highest displayable intensity stimulus with the same chromaticity as the shader_input,
     // and its associated equivalent luminance.
     const float3 max_intensity_rgb = shader_input.stimulus / max(shader_input.stimulus.r, max(shader_input.stimulus.g, shader_input.stimulus.b)).xxx;
-    float max_intensity_equiv_lum = hk_equivalent_luminance(max_intensity_rgb);
+    float max_intensity_equiv_lum = srgb_to_equivalent_luminance(hk, max_intensity_rgb);
     //return max_intensity_equiv_lum.xxx - 1.0;
     //return saturate(max_intensity_rgb);
 
@@ -224,9 +239,11 @@ float3 compress_stimulus(ShaderInput shader_input) {
 		const float3 perceptual_mid = lerp(perceptual, perceptual_white, chroma_attenuation);
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
 
+        const HelmholtzKohlrauschEffect hk = hk_from_sRGB(compressed_rgb);
+
         #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
             for (int i = 0; i < 2; ++i) {
-                const float current_brightness = hk_equivalent_luminance(compressed_rgb);
+                const float current_brightness = srgb_to_equivalent_luminance(hk, compressed_rgb);
                 compressed_rgb *= compressed_achromatic_luminance / max(1e-10, current_brightness);
             }
         #endif
