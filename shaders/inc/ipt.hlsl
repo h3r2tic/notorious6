@@ -1,6 +1,7 @@
+#ifndef IPT_HLSL
+#define IPT_HLSL
 
-
-float3 xyz_to_ipt(float3 xyz) {
+float3 XYZ_to_IPT(float3 xyz) {
     float3 lms = mul(
         float3x3(
              0.4002, 0.7075, -0.0807,
@@ -23,7 +24,7 @@ float3 xyz_to_ipt(float3 xyz) {
 }
 
 
-float3 ipt_to_xyz(float3 ipt) {
+float3 IPT_to_XYZ(float3 ipt) {
     float3 lms = mul(
         float3x3(
          1.0,  0.0976, 0.2052,
@@ -44,3 +45,5 @@ float3 ipt_to_xyz(float3 ipt) {
         lms
     );
 }
+
+#endif  // IPT_HLSL

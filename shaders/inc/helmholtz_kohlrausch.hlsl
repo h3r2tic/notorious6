@@ -1,4 +1,22 @@
-#include "catmull_rom.hlsl"
+#ifndef HELMHOLTZ_KOHLRAUSCH_HLSL
+#define HELMHOLTZ_KOHLRAUSCH_HLSL
+
+#include "math.hlsl"
+#include "srgb.hlsl"
+
+// Helmholtz-Kohlrausch adjustment methods
+#define HK_ADJUSTMENT_METHOD_NONE 0
+#define HK_ADJUSTMENT_METHOD_NAYATANI 1
+#define HK_ADJUSTMENT_METHOD_CUSTOM_G0 2
+
+// Adapting luminance (L_a) used for the H-K adjustment. 20 cd/m2 was used in Sanders and Wyszecki (1964)
+#define HK_ADAPTING_LUMINANCE 20
+
+// Choose the method for performing the H-K adjustment
+#ifndef HK_ADJUSTMENT_METHOD
+#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_CUSTOM_G0
+#endif
+
 
 // Helmholtz-Kohlrausch
 // From https://github.com/ilia3101/HKE
@@ -7,7 +25,7 @@
 // `uv`: CIE LUV u' and v'
 // `adapt_lum`: adating luminance (L_a)
 float hk_lightness_adjustment_multiplier_nayatani(float2 uv, float adapt_lum) {
-    const float2 d65_uv = cie_xy_to_Luv_uv(float2(0.31271, 0.32902));
+    const float2 d65_uv = CIE_xyY_xy_to_LUV_uv(white_D65_xy);
     const float u_white = d65_uv[0];
     const float v_white = d65_uv[1];
 
@@ -31,8 +49,8 @@ float hk_lightness_adjustment_multiplier_nayatani(float2 uv, float adapt_lum) {
 // Heavily modified from Nayatani
 // `uv`: CIE LUV u' and v'
 float XYZ_to_hk_luminance_multiplier_custom_g0(float3 XYZ) {
-    float2 uv = cie_XYZ_to_Luv_uv(XYZ);
-    const float2 d65_uv = cie_xy_to_Luv_uv(float2(0.31271, 0.32902));
+    float2 uv = CIE_XYZ_to_LUV_uv(XYZ);
+    const float2 d65_uv = CIE_xyY_xy_to_LUV_uv(white_D65_xy);
     const float u_white = d65_uv[0];
     const float v_white = d65_uv[1];
     uv -= float2(u_white, v_white);
@@ -47,7 +65,7 @@ float XYZ_to_hk_luminance_multiplier_custom_g0(float3 XYZ) {
         -0.021,    // greenish cyan
         -0.033,    // cyan
         -0.009,    // cyan
-        0.156,    // blue
+        0.14,    // blue
         0.114,   // purplish-blue
         0.111,   // magenta
         0.1005,   // magenta
@@ -81,3 +99,35 @@ float XYZ_to_hk_luminance_multiplier_custom_g0(float3 XYZ) {
     const float mult_cbrt = 1.0 + (q + 0.0872 * kbr) * suv;
     return mult_cbrt * mult_cbrt * mult_cbrt;
 }
+
+struct HelmholtzKohlrauschEffect {
+#if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+    float mult;
+#else
+    float omg_glsl_y_u_no_empty_struct;
+#endif
+};
+
+HelmholtzKohlrauschEffect hk_from_sRGB(float3 stimulus) {
+    HelmholtzKohlrauschEffect res;
+    #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+        res.mult = XYZ_to_hk_luminance_multiplier_custom_g0(sRGB_to_XYZ(stimulus));
+    #endif
+    return res;
+}
+
+float srgb_to_equivalent_luminance(HelmholtzKohlrauschEffect hk, float3 stimulus) {
+    #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
+        const float luminance = srgb_to_luminance(stimulus);
+        const float2 uv = CIE_XYZ_to_LUV_uv(sRGB_to_XYZ(stimulus));
+        const float luv_brightness = luminance_to_LUV_L(luminance);
+        const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
+        return LUV_L_to_luminance(luv_brightness * mult);
+    #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+        return hk.mult * sRGB_to_XYZ(stimulus).y;
+    #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
+        return srgb_to_luminance(stimulus);
+    #endif
+}
+
+#endif  // HELMHOLTZ_KOHLRAUSCH_HLSL

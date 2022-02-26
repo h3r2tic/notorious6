@@ -1,11 +1,14 @@
 #version 430
 #include "hlsl_to_glsl.glsl"
-#include "math_constants.hlsl"
+#include "math.hlsl"
 
 uniform sampler2D input_texture;
 uniform float input_ev;
-in vec2 input_uv;
-out vec4 output_rgba;
+in float2 input_uv;
+out float4 output_rgba;
+
+#define DECLARE_BEZOLD_BRUCKE_LUT uniform sampler1D bezold_brucke_lut
+#define SAMPLE_BEZOLD_BRUCKE_LUT(coord) textureLod(bezold_brucke_lut, (coord), 0).xy
 
 struct ShaderInput {
     float3 stimulus;
@@ -19,4 +22,4 @@ ShaderInput prepare_shader_input() {
     return shader_input;
 }
 
-#define SHADER_MAIN_FN output_rgba = vec4(compress_stimulus(prepare_shader_input()), 1.0);
+#define SHADER_MAIN_FN output_rgba = float4(compress_stimulus(prepare_shader_input()), 1.0);

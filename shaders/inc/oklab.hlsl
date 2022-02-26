@@ -1,3 +1,8 @@
+#ifndef OKLAB_HLSL
+#define OKLAB_HLSL
+
+#include "math.hlsl"
+
 // Copyright(c) 2021 Björn Ottosson
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -16,23 +21,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-float cbrt( float x )
-{
-    return sign(x)*pow(abs(x),1.0f/3.0f);
-}
-
-float srgb_transfer_function(float a)
-{
-	return .0031308f >= a ? 12.92f * a : 1.055f * pow(a, .4166666666666667f) - .055f;
-}
-
-float srgb_transfer_function_inv(float a)
-{
-	return .04045f < a ? pow((a + .055f) / 1.055f, 2.4f) : a / 12.92f;
-}
-
-float3 linear_srgb_to_oklab(float3 c)
-{
+float3 sRGB_to_Oklab(float3 c) {
 	float l = 0.4122214708f * c.r + 0.5363325363f * c.g + 0.0514459929f * c.b;
 	float m = 0.2119034982f * c.r + 0.6806995451f * c.g + 0.1073969566f * c.b;
 	float s = 0.0883024619f * c.r + 0.2817188376f * c.g + 0.6299787005f * c.b;
@@ -48,8 +37,7 @@ float3 linear_srgb_to_oklab(float3 c)
 	);
 }
 
-float3 oklab_to_linear_srgb(float3 c)
-{
+float3 Oklab_to_sRGB(float3 c) {
 	float l_ = c.x + 0.3963377774f * c.y + 0.2158037573f * c.z;
 	float m_ = c.x - 0.1055613458f * c.y - 0.0638541728f * c.z;
 	float s_ = c.x - 0.0894841775f * c.y - 1.2914855480f * c.z;
@@ -64,3 +52,5 @@ float3 oklab_to_linear_srgb(float3 c)
 		-0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s
 	);
 }
+
+#endif  // OKLAB_HLSL

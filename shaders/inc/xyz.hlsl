@@ -1,8 +1,7 @@
 #ifndef XYZ_HLSL
 #define XYZ_HLSL
 
-float3 CIE_xy_to_xyz( float2 xy )
-{
+float3 CIE_xyY_xy_to_xyz(float2 xy) {
     return float3( xy, 1.0f - xy.x - xy.y );
 }
 
@@ -32,5 +31,7 @@ float3 CIE_XYZ_to_xyY( float3 CIE_XYZ )
     
     return float3(x,y,Y);
 }
+
+static const float2 white_D65_xy = float2(0.31271, 0.32902);
 
 #endif  // XYZ_HLSL

@@ -1,3 +1,6 @@
+#ifndef ICTCP_HLSL
+#define ICTCP_HLSL
+
 // From https://www.shadertoy.com/view/ldKcz3
 
 static const float PQ_C1 = 0.8359375f;			// 3424.f / 4096.f;
@@ -5,13 +8,11 @@ static const float PQ_C2 = 18.8515625f;		// 2413.f / 4096.f * 32.f;
 static const float PQ_C3 = 18.6875f;			// 2392.f / 4096.f * 32.f;
 static const float PQ_M1 = 0.159301758125f;	// 2610.f / 4096.f / 4;
 static const float PQ_M2 = 78.84375f;			// 2523.f / 4096.f * 128.f;
-
-#define PQ_MAX 10000.0f
-
+static const float PQ_MAX = 10000.0;
 
 // PQ_OETF - Optical-Electro Transfer Function 
 
-float Linear_to_PQ( float linearValue )
+float linear_to_PQ( float linearValue )
 {
 	float L = linearValue / PQ_MAX;
 	float Lm1 = pow( L, PQ_M1 );
@@ -20,7 +21,7 @@ float Linear_to_PQ( float linearValue )
 	return pqValue;
 }
 
-float3 Linear_to_PQ( float3 linearValues )
+float3 linear_to_PQ( float3 linearValues )
 {
 	float3 L = linearValues / PQ_MAX;
 	float3 Lm1 = pow( max(0.0.xxx, L.xyz), PQ_M1.xxx );
@@ -31,7 +32,7 @@ float3 Linear_to_PQ( float3 linearValues )
 
 // PQ_EOTF - Electro-Optical Transfer Function 
 
-float PQ_to_Linear( float pqValue )
+float PQ_to_linear( float pqValue )
 {
 	float M = PQ_C2 - PQ_C3 * pow( max(0.0, pqValue), 1.0 / PQ_M2 );
 	float N = max( pow( max(0.0, pqValue), 1.0f / PQ_M2 ) - PQ_C1, 0.0f );
@@ -40,7 +41,7 @@ float PQ_to_Linear( float pqValue )
 	return linearValue;
 }
 
-float3 PQ_to_Linear( float3 pqValues )
+float3 PQ_to_linear( float3 pqValues )
 {
 	float3 M = PQ_C2 - PQ_C3 * pow( max(0.0.xxx, pqValues), 1. / PQ_M2.xxx );
 	float3 N = max( pow( max(0.0.xxx, pqValues), 1. / PQ_M2.xxx ) - PQ_C1, 0.0f );
@@ -52,7 +53,7 @@ float3 PQ_to_Linear( float3 pqValues )
 
 // BT.709 <-> BT.2020 Primaries
 
-float3 Primaries_BT709_to_BT2020( float3 linearBT709 )
+float3 BT709_to_BT2020( float3 linearBT709 )
 {
 	float3 linearBT2020 = mul(
         float3x3(
@@ -64,7 +65,7 @@ float3 Primaries_BT709_to_BT2020( float3 linearBT709 )
 	return linearBT2020;
 }
 
-float3 Primaries_BT2020_to_BT709( float3 linearBT2020 )
+float3 BT2020_to_BT709( float3 linearBT2020 )
 {
 	float3 linearBT709 = mul( 
     	float3x3(
@@ -78,7 +79,7 @@ float3 Primaries_BT2020_to_BT709( float3 linearBT2020 )
 
 // LMS <-> BT2020
 
-float3 Primaries_BT2020_to_LMS( float3 linearBT2020 )
+float3 BT2020_to_LMS( float3 linearBT2020 )
 {
 	float R = linearBT2020.r;
 	float G = linearBT2020.g;
@@ -92,7 +93,7 @@ float3 Primaries_BT2020_to_LMS( float3 linearBT2020 )
 	return linearLMS;
 }
 
-float3 Primaries_LMS_to_BT2020( float3 linearLMS )
+float3 LMS_to_BT2020( float3 linearLMS )
 {
 	float L = linearLMS.x;
 	float M = linearLMS.y;
@@ -143,41 +144,42 @@ float3 ICtCp_to_PQ_LMS( float3 ICtCp )
 // https://www.dolby.com/us/en/technologies/dolby-vision/ictcp-white-paper.pdf
 // http://www.jonolick.com/home/hdr-videos-part-2-colors
 
-float3 LinearBT2020_to_ICtCp( float3 linearBT2020 ) 
+float3 BT2020_to_ICtCp( float3 linearBT2020 ) 
 {
-	float3 LMS = Primaries_BT2020_to_LMS( linearBT2020 );
-	float3 PQ_LMS = Linear_to_PQ( LMS );
+	float3 LMS = BT2020_to_LMS( linearBT2020 );
+	float3 PQ_LMS = linear_to_PQ( LMS );
 	float3 ICtCp = PQ_LMS_to_ICtCp( PQ_LMS );
 
 	return ICtCp;
 }
 
-float3 ICtCp_to_LinearBT2020( float3 ICtCp )
+float3 ICtCp_to_BT2020( float3 ICtCp )
 {
 	float3 PQ_LMS = ICtCp_to_PQ_LMS( ICtCp );
-	float3 LMS = PQ_to_Linear( PQ_LMS );
-	float3 linearBT2020 = Primaries_LMS_to_BT2020( LMS );
+	float3 LMS = PQ_to_linear( PQ_LMS );
+	float3 linearBT2020 = LMS_to_BT2020( LMS );
 	return linearBT2020;
 }
 
 // ----------------------------------------------------------------
-// By Tomasz:
 
-float3 LinearBT709_to_ICtCp( float3 linearBT709 ) 
+float3 BT709_to_ICtCp( float3 linearBT709 ) 
 {
-	float3 linearBT2020 = Primaries_BT709_to_BT2020(linearBT709);
-	float3 LMS = Primaries_BT2020_to_LMS( linearBT2020 );
-	float3 PQ_LMS = Linear_to_PQ( LMS );
+	float3 linearBT2020 = BT709_to_BT2020(linearBT709);
+	float3 LMS = BT2020_to_LMS( linearBT2020 );
+	float3 PQ_LMS = linear_to_PQ( LMS );
 	float3 ICtCp = PQ_LMS_to_ICtCp( PQ_LMS );
 
 	return ICtCp;
 }
 
-float3 ICtCp_to_LinearBT709( float3 ICtCp )
+float3 ICtCp_to_BT709( float3 ICtCp )
 {
 	float3 PQ_LMS = ICtCp_to_PQ_LMS( ICtCp );
-	float3 LMS = PQ_to_Linear( PQ_LMS );
-	float3 linearBT2020 = Primaries_LMS_to_BT2020( LMS );
-	float3 linearBT709 = Primaries_BT2020_to_BT709( linearBT2020 );
+	float3 LMS = PQ_to_linear( PQ_LMS );
+	float3 linearBT2020 = LMS_to_BT2020( LMS );
+	float3 linearBT709 = BT2020_to_BT709( linearBT2020 );
 	return linearBT709;
 }
+
+#endif  // ICTCP_HLSL

@@ -3,23 +3,19 @@
 #include "inc/prelude.glsl"
 #include "inc/ictcp.hlsl"
 #include "inc/luv.hlsl"
-#include "inc/lms.hlsl"
 #include "inc/oklab.hlsl"
 #include "inc/lab.hlsl"
-#include "inc/h-k.hlsl"
 #include "inc/ycbcr.hlsl"
+
+#define HK_ADJUSTMENT_METHOD 1  // Force Nayatani
+#include "inc/helmholtz_kohlrausch.hlsl"
 
 // The space to perform chroma attenuation in. More details in the `compress_stimulus` function.
 // Oklab works best, with ICtCp being a close second.
 // LUV and None don't provide Abney correction.
 #define PERCEPTUAL_SPACE_OKLAB 0
-#define PERCEPTUAL_SPACE_LUV 1
 #define PERCEPTUAL_SPACE_ICTCP 2
 #define PERCEPTUAL_SPACE_NONE 3
-
-// Helmholtz-Kohlrausch adjustment methods
-#define HK_ADJUSTMENT_METHOD_NAYATANI 0
-#define HK_ADJUSTMENT_METHOD_NONE 1
 
 // Brightness compression curves:
 #define BRIGHTNESS_COMPRESSION_CURVE_REINHARD 0
@@ -32,12 +28,6 @@
 
 // Choose the perceptual space for chroma attenuation.
 #define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_OKLAB
-
-// Choose the method for performing the H-K adjustment
-#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_NAYATANI
-
-// Adapting luminance (L_a) used for the H-K adjustment. 20 cd/m2 was used in Sanders and Wyszecki (1964)
-#define HK_ADAPTING_LUMINANCE 20
 
 // Match target compressed brightness while attenuating chroma.
 // Important in the low end, as well as at the high end of blue and red.
@@ -70,14 +60,11 @@
 
 // Based on the selection, define `linear_to_perceptual` and `perceptual_to_linear`
 #if PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_OKLAB
-	#define linear_to_perceptual(col) linear_srgb_to_oklab(col)
-	#define perceptual_to_linear(col) oklab_to_linear_srgb(col)
-#elif PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_LUV
-	#define linear_to_perceptual(col) xyzToLuv(RGBToXYZ(col))
-	#define perceptual_to_linear(col) XYZtoRGB(luvToXyz(col))
+	#define linear_to_perceptual(col) sRGB_to_Oklab(col)
+	#define perceptual_to_linear(col) Oklab_to_sRGB(col)
 #elif PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_ICTCP
-	#define linear_to_perceptual(col) LinearBT709_to_ICtCp(col)
-	#define perceptual_to_linear(col) ICtCp_to_LinearBT709(col)
+	#define linear_to_perceptual(col) BT709_to_ICtCp(col)
+	#define perceptual_to_linear(col) ICtCp_to_BT709(col)
 #elif PERCEPTUAL_SPACE == PERCEPTUAL_SPACE_NONE
 	#define linear_to_perceptual(col) (col)
 	#define perceptual_to_linear(col) (col)
@@ -97,23 +84,6 @@ float compress_brightness(float v) {
         const float sy = 1.0205;
 		return saturate(sy * pow(v / (v + sx), p));
     #endif
-}
-
-float srgb_to_luminance(float3 col) {
-    return rgb_to_ycbcr(col).x;
-}
-
-// Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
-float hk_equivalent_luminance(float3 shader_input) {
-#if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
-    const float luminance = srgb_to_luminance(shader_input);
-    const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(shader_input));
-    const float luv_brightness = hsluv_yToL(luminance);
-    const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
-    return hsluv_lToY(luv_brightness * mult);
-#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
-    return srgb_to_luminance(shader_input);
-#endif
 }
 
 // A square with the (1, 0) and (0, 1) corners circularly trimmed.
@@ -143,13 +113,15 @@ bool is_inside_target_gamut(float3 pos) {
 }
 
 float3 compress_stimulus(ShaderInput shader_input) {
+    const HelmholtzKohlrauschEffect hk = hk_from_sRGB(shader_input.stimulus);
+    
     // Find the shader_input brightness adjusted by the Helmholtz-Kohlrausch effect.
-    const float input_brightness = hk_equivalent_luminance(shader_input.stimulus);
+    const float input_brightness = srgb_to_equivalent_luminance(hk, shader_input.stimulus);
 
     // The highest displayable intensity stimulus with the same chromaticity as the shader_input,
     // and its associated brightness.
     const float3 max_intensity_rgb = shader_input.stimulus / max(shader_input.stimulus.r, max(shader_input.stimulus.g, shader_input.stimulus.b)).xxx;
-    float max_intensity_brightness = hk_equivalent_luminance(max_intensity_rgb);
+    float max_intensity_brightness = srgb_to_equivalent_luminance(hk, max_intensity_rgb);
     //return max_intensity_brightness.xxx - 1.0;
     //return max_intensity_rgb;
 
@@ -219,10 +191,11 @@ float3 compress_stimulus(ShaderInput shader_input) {
     {
 		float3 perceptual_mid = lerp(perceptual, perceptual_white, s0);
 		compressed_rgb = perceptual_to_linear(perceptual_mid);
+        const HelmholtzKohlrauschEffect hk = hk_from_sRGB(compressed_rgb);
 
         #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
             for (int i = 0; i < 2; ++i) {
-                const float current_brightness = hk_equivalent_luminance(compressed_rgb);
+                const float current_brightness = srgb_to_equivalent_luminance(hk, compressed_rgb);
                 compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
             }
         #endif
@@ -232,9 +205,10 @@ float3 compress_stimulus(ShaderInput shader_input) {
     	for (int i = 0; i < 24; ++i) {
     		float3 perceptual_mid = lerp(perceptual, perceptual_white, lerp(s0, s1, 0.5));
     		compressed_rgb = perceptual_to_linear(perceptual_mid);
+            const HelmholtzKohlrauschEffect hk = hk_from_sRGB(compressed_rgb);
 
             #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
-                const float current_brightness = hk_equivalent_luminance(compressed_rgb);
+                const float current_brightness = srgb_to_equivalent_luminance(hk, compressed_rgb);
                 compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
             #endif
 
