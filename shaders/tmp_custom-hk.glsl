@@ -7,7 +7,6 @@
 #include "inc/h-k.hlsl"
 #include "inc/ycbcr.hlsl"
 #include "inc/ipt.hlsl"
-//#include "inc/hsluv.glsl"
 
 // The space to perform chroma attenuation in. More details in the `compress_stimulus` function.
 // Oklab works well, but fails at pure blues.
@@ -22,7 +21,7 @@
 // Helmholtz-Kohlrausch adjustment methods
 #define HK_ADJUSTMENT_METHOD_NONE 0
 #define HK_ADJUSTMENT_METHOD_NAYATANI 1
-#define HK_ADJUSTMENT_METHOD_NAYATANI_HACK 2
+#define HK_ADJUSTMENT_METHOD_CUSTOM_G0 2
 
 // Brightness compression curves:
 #define BRIGHTNESS_COMPRESSION_CURVE_REINHARD 0
@@ -38,7 +37,7 @@
 #define PERCEPTUAL_SPACE PERCEPTUAL_SPACE_IPT
 
 // Choose the method for performing the H-K adjustment
-#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_NAYATANI_HACK
+#define HK_ADJUSTMENT_METHOD HK_ADJUSTMENT_METHOD_CUSTOM_G0
 
 // Adapting luminance (L_a) used for the H-K adjustment. 20 cd/m2 was used in Sanders and Wyszecki (1964)
 #define HK_ADAPTING_LUMINANCE 20
@@ -95,71 +94,6 @@ float srgb_to_luminance(float3 col) {
     return rgb_to_ycbcr(col).x;
 }
 
-
-#define PI2 6.283185307179586
-
-float hsluv_from_linear(float x) {
-    return x <= 0.003 ? 13.0 * x : 1.055 * pow(x, 0.416) - 0.055;
-}
-
-vec3 hsluv(float h, float s, float l) {
-    const float[6] N = float[6](
-        /* [1, 1] :: 632260 * M[2] - 126452 * M[1] */ -120846.0,
-        /* [1, 2] :: 284517 * M[0] -  94839 * M[2] */ 969398.0,
-        /* [2, 1] :: 632260 * M[5] - 126452 * M[4] */ -210946.0,
-        /* [2, 2] :: 284517 * M[3] -  94839 * M[5] */ -279707.0,
-        /* [3, 1] :: 632260 * M[8] - 126452 * M[7] */ 694074.0,
-        /* [3, 2] :: 284517 * M[6] -  94839 * M[8] */ -84414.0
-    );
-
-    float hsin = sin(h);
-    float hcos = cos(h);
-
-    float a = l + 16.0;
-    float r;
-    float g;
-    float b = a / 116.0;
-
-    float c;
-    float d;
-    float e = 769860.0 * l;
-
-    int i;
-
-#if 1
-    a = a * a * a / 1560896.0;  //   a is sub1
-    a = a > 0.01 ? a : l / 903.0; // a is sub2
-#endif
-
-    h = 3.402823466e+38;          // h is cmax
-
-    for (; i < 6; ) {
-        r = N[i++] * a;
-        g = N[i++] * a * hcos;
-
-        c = e * a / (r * hsin - g); //                      c is length
-        h = c >= 0.0 ? min(h, c) : h; //                    h is cmax
-
-        c = e * (a - 1.0) / ((r + 126452.0) * hsin - g); // c is length
-        h = c >= 0.0 ? min(h, c) : h; //                    h is cmax
-    }
-
-    h = h / 100.0 * s / (13.0 * l); //       h is c / (13 * l)
-
-    s = hcos * h + 0.19783; //               s is varU
-    h = 1.0 / (hsin * h + 0.4683); //        h is 1 / varV
-
-    l = l <= 8.0 ? l / 903.0 : b * b * b; // l is y
-    s = 9.0 * l * h * s / 4.0; //            s is x
-    h = 3.0 * l * h - s / 3.0 - 5.0 * l; //  h is z
-
-    r = hsluv_from_linear(+3.2410 * s + -1.5373 * l + -0.4986 * h);
-    g = hsluv_from_linear(-0.9692 * s + +1.8760 * l + +0.0416 * h);
-    b = hsluv_from_linear(+0.0556 * s + -0.2040 * l + +1.0570 * h);
-
-    return vec3(r, g, b);
-}
-
 vec3 hsv2rgb( in vec3 c )
 {
     vec3 rgb = clamp( abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),6.0)-3.0)-1.0, 0.0, 1.0 );
@@ -167,20 +101,18 @@ vec3 hsv2rgb( in vec3 c )
 }
 
 // Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
-float srgb_to_hk_adjusted_brightness(float3 shader_input) {
+float hk_equivalent_luminance(float3 shader_input) {
     //return srgb_to_luminance(shader_input) * 10;
 #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
     const float luminance = srgb_to_luminance(shader_input);
     const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(shader_input));
     const float luv_brightness = hsluv_yToL(luminance);
-    const float mult = nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
+    const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
     return hsluv_lToY(luv_brightness * mult);
-#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI_HACK
-    const float luminance = srgb_to_luminance(shader_input);
-    const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(shader_input));
-    const float luv_brightness = hsluv_yToL(luminance);
-    const float mult = hack_nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
-    return hsluv_lToY(luv_brightness) * pow(mult, 3.5);
+#elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_CUSTOM_G0
+    const float3 XYZ = RGBToXYZ(shader_input);
+    const float mult = XYZ_to_hk_luminance_multiplier_custom_g0(XYZ);
+    return XYZ.y * mult;
 #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
     return srgb_to_luminance(shader_input);
 #endif
@@ -190,7 +122,7 @@ float3 okrly_compress_stimulus(ShaderInput shader_input) {
     // herp derp saturation of cones
     if (true) {
         float3 stimulus = shader_input.stimulus;
-        const float input_brightness = srgb_to_hk_adjusted_brightness(stimulus);
+        const float input_brightness = hk_equivalent_luminance(stimulus);
 
         const float k = 16.0;
         const float p = 1.0;
@@ -201,17 +133,17 @@ float3 okrly_compress_stimulus(ShaderInput shader_input) {
         stimulus *= k;
         stimulus = Primaries_BT2020_to_BT709(Primaries_LMS_to_BT2020(stimulus));
         
-        stimulus *= input_brightness / max(1e-10, srgb_to_hk_adjusted_brightness(stimulus));
+        stimulus *= input_brightness / max(1e-10, hk_equivalent_luminance(stimulus));
         shader_input.stimulus = stimulus;
     }
 
     // Find the shader_input brightness adjusted by the Helmholtz-Kohlrausch effect.
-    const float input_brightness = srgb_to_hk_adjusted_brightness(shader_input.stimulus);
+    const float input_brightness = hk_equivalent_luminance(shader_input.stimulus);
 
     // The highest displayable intensity stimulus with the same chromaticity as the shader_input,
     // and its associated brightness.
     const float3 max_intensity_rgb = shader_input.stimulus / max(shader_input.stimulus.r, max(shader_input.stimulus.g, shader_input.stimulus.b)).xxx;
-    float max_intensity_brightness = srgb_to_hk_adjusted_brightness(max_intensity_rgb);
+    float max_intensity_brightness = hk_equivalent_luminance(max_intensity_rgb);
     //return max_intensity_brightness.xxx - 1.0;
     //return saturate(max_intensity_rgb);
 
@@ -277,7 +209,7 @@ float3 okrly_compress_stimulus(ShaderInput shader_input) {
 
         #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
             for (int i = 0; i < 2; ++i) {
-                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+                const float current_brightness = hk_equivalent_luminance(compressed_rgb);
                 compressed_rgb *= compressed_achromatic_luminance / max(1e-10, current_brightness);
             }
         #endif
@@ -302,7 +234,7 @@ float3 okrly_compress_stimulus(ShaderInput shader_input) {
         compressed_rgb /= pow(lerp(0.5, 1.0, max_comp_dist), 1.0 / p);
     }
 
-    //return srgb_to_hk_adjusted_brightness(compressed_rgb).xxx;
+    //return hk_equivalent_luminance(compressed_rgb).xxx;
     //return compressed_achromatic_luminance.xxx;
 
     return compressed_rgb;
@@ -310,10 +242,6 @@ float3 okrly_compress_stimulus(ShaderInput shader_input) {
 
 vec3 compress_stimulus(ShaderInput shader_input) {
     shader_input.uv.x = fract(-shader_input.uv.x - 0.14);
-
-    //vec3 res = hsluv(uv.x * PI2, 100.0, (1.0 - uv.y) * 100.0);
-    //vec3 res = hsluvToRgb(uv.x * 360.0, 100.0, (1.0 - uv.y) * 100.0);
-    //vec3 res = lchToRgb(30.0, 100.0, uv.x * 360.0);
     const float2 quant = float2(42, 24);
     
     const float2 uv = floor(shader_input.uv * quant) / quant;
@@ -348,7 +276,7 @@ vec3 compress_stimulus(ShaderInput shader_input) {
 #endif
 
     for (int i = 0; i < 2; ++i) {
-        res /= srgb_to_hk_adjusted_brightness(res);
+        res /= hk_equivalent_luminance(res);
     }
     
     res *= smoothstep(1.0, 0.0, uv.y);
@@ -369,8 +297,8 @@ vec3 compress_stimulus(ShaderInput shader_input) {
         
         hsv_output = lerp(hsv_output, srgb_to_luminance(hsv_output).xxx, desaturation);
 
-        hsv_output /= srgb_to_hk_adjusted_brightness(hsv_output);
-        hsv_output /= srgb_to_hk_adjusted_brightness(hsv_output);
+        hsv_output /= hk_equivalent_luminance(hsv_output);
+        hsv_output /= hk_equivalent_luminance(hsv_output);
 
         //float equiv = srgb_to_luminance(hsv_output);
         float equiv = log(1.0 / srgb_to_luminance(hsv_output)) + 0.1;

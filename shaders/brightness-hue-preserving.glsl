@@ -104,12 +104,12 @@ float srgb_to_luminance(float3 col) {
 }
 
 // Stimulus-linear luminance adjusted by the Helmholtz-Kohlrausch effect
-float srgb_to_hk_adjusted_brightness(float3 shader_input) {
+float hk_equivalent_luminance(float3 shader_input) {
 #if HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NAYATANI
     const float luminance = srgb_to_luminance(shader_input);
     const float2 uv = cie_XYZ_to_Luv_uv(RGBToXYZ(shader_input));
     const float luv_brightness = hsluv_yToL(luminance);
-    const float mult = nayatani_hk_lightness_adjustment_multiplier(uv, HK_ADAPTING_LUMINANCE);
+    const float mult = hk_lightness_adjustment_multiplier_nayatani(uv, HK_ADAPTING_LUMINANCE);
     return hsluv_lToY(luv_brightness * mult);
 #elif HK_ADJUSTMENT_METHOD == HK_ADJUSTMENT_METHOD_NONE
     return srgb_to_luminance(shader_input);
@@ -144,12 +144,12 @@ bool is_inside_target_gamut(float3 pos) {
 
 float3 compress_stimulus(ShaderInput shader_input) {
     // Find the shader_input brightness adjusted by the Helmholtz-Kohlrausch effect.
-    const float input_brightness = srgb_to_hk_adjusted_brightness(shader_input.stimulus);
+    const float input_brightness = hk_equivalent_luminance(shader_input.stimulus);
 
     // The highest displayable intensity stimulus with the same chromaticity as the shader_input,
     // and its associated brightness.
     const float3 max_intensity_rgb = shader_input.stimulus / max(shader_input.stimulus.r, max(shader_input.stimulus.g, shader_input.stimulus.b)).xxx;
-    float max_intensity_brightness = srgb_to_hk_adjusted_brightness(max_intensity_rgb);
+    float max_intensity_brightness = hk_equivalent_luminance(max_intensity_rgb);
     //return max_intensity_brightness.xxx - 1.0;
     //return max_intensity_rgb;
 
@@ -222,7 +222,7 @@ float3 compress_stimulus(ShaderInput shader_input) {
 
         #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
             for (int i = 0; i < 2; ++i) {
-                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+                const float current_brightness = hk_equivalent_luminance(compressed_rgb);
                 compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
             }
         #endif
@@ -234,7 +234,7 @@ float3 compress_stimulus(ShaderInput shader_input) {
     		compressed_rgb = perceptual_to_linear(perceptual_mid);
 
             #if USE_BRIGHTNESS_LINEAR_CHROMA_ATTENUATION
-                const float current_brightness = srgb_to_hk_adjusted_brightness(compressed_rgb);
+                const float current_brightness = hk_equivalent_luminance(compressed_rgb);
                 compressed_rgb *= clamped_compressed_achromatic_luminance / max(1e-10, current_brightness);
             #endif
 
@@ -256,7 +256,7 @@ float3 compress_stimulus(ShaderInput shader_input) {
     compressed_rgb /= max(1.0, max(compressed_rgb.r, max(compressed_rgb.g, compressed_rgb.b)));
 #endif
 
-    //return srgb_to_hk_adjusted_brightness(compressed_rgb).xxx;
+    //return hk_equivalent_luminance(compressed_rgb).xxx;
     //return compressed_achromatic_luminance.xxx;
 
     return compressed_rgb;
