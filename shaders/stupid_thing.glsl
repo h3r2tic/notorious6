@@ -61,8 +61,8 @@
 
 // ----------------------------------------------------------------
 
-#define USE_BEZOLD_BRUCKE_SHIFT 0
-#define BEZOLD_BRUCKE_SHIFT_RAMP 6
+#define USE_BEZOLD_BRUCKE_SHIFT 1
+#define BEZOLD_BRUCKE_SHIFT_RAMP 5
 #define USE_LONG_TAILED_CHROMA_ATTENUATION 1
 #define CHROMA_ATTENUATION_BIAS 1.03
 
