@@ -52,7 +52,7 @@ vec3 compress_stimulus(ShaderInput shader_input) {
     res *= pow(smoothstep(1.0, 0.0, uv.y), 1.5) * 6;
 
 #if 1
-    res = sRGB_display_transform(res);
+    res = display_transform_sRGB(res);
 #endif
 
     if (true) {

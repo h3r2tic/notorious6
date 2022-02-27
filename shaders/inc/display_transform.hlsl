@@ -80,7 +80,7 @@ float compress_luminance(float v) {
     #endif
 }
 
-float3 sRGB_display_transform(float3 input_stimulus) {
+float3 display_transform_sRGB(float3 input_stimulus) {
     if (USE_BEZOLD_BRUCKE_SHIFT) {
         const float t = sRGB_to_luminance(input_stimulus) / BEZOLD_BRUCKE_SHIFT_RAMP;
         const float shift_amount = t / (t + 1.0);
