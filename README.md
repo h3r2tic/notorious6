@@ -37,6 +37,10 @@ or
 * Up/down - switch techniques (see the [`shaders`](shaders) folder)
 * Hold the left mouse button and drag up/down: change EV
 
+## Acknowledgments
+
+Special thanks to Troy Sobotka for guidance and mind-bending discussions about color.
+
 ## License
 
 This contribution is dual licensed under EITHER OF
