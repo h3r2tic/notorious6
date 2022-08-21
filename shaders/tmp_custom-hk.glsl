@@ -25,9 +25,9 @@ vec3 compress_stimulus(ShaderInput shader_input) {
     vec3 res = hsv2rgb(float3(h, 0.999, 1.0));
     //return res * smoothstep(1.0, 0.0, uv.y);
 
-    res.x = sRGB_OETF(res.x);
-    res.y = sRGB_OETF(res.y);
-    res.z = sRGB_OETF(res.z);
+    res.x = sRGB_EOTF(res.x);
+    res.y = sRGB_EOTF(res.y);
+    res.z = sRGB_EOTF(res.z);
 
     const float desaturation = 0.0;
     res = lerp(res, sRGB_to_luminance(res).xxx, desaturation);
@@ -58,9 +58,9 @@ vec3 compress_stimulus(ShaderInput shader_input) {
     if (true) {
         float h = shader_input.uv.x;
         vec3 hsv_output = hsv2rgb(float3(h, 0.999, 1.0));
-        hsv_output.x = sRGB_OETF(hsv_output.x);
-        hsv_output.y = sRGB_OETF(hsv_output.y);
-        hsv_output.z = sRGB_OETF(hsv_output.z);
+        hsv_output.x = sRGB_EOTF(hsv_output.x);
+        hsv_output.y = sRGB_EOTF(hsv_output.y);
+        hsv_output.z = sRGB_EOTF(hsv_output.z);
         
         hsv_output = lerp(hsv_output, sRGB_to_luminance(hsv_output).xxx, desaturation);
 
